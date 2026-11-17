@@ -1,0 +1,1088 @@
+/* Tournament operations -- the layer the interface sits on.
+ *
+ * A port of mahjong/store.py. The SQLite tables become one plain object graph,
+ * which is what gets persisted to IndexedDB and what gets written out as a
+ * restore point. Everything that changes state goes through here, so every
+ * change lands in the event log and triggers a backup.
+ */
+(function () {
+'use strict';
+
+/* eslint-disable no-undef */
+const _scoring = (typeof require === 'function') ? require('./scoring.js') : window.RT.scoring;
+const _seating = (typeof require === 'function') ? require('./seating.js') : window.RT.seating;
+const _rat = (typeof require === 'function') ? require('./rational.js') : window.RT.rational;
+
+const {
+  ScoreRules, seatScore, tableScore, scoreTable, playerRecord, buildStandings, SEAT_WINDS,
+} = _scoring;
+const {
+  SeatingHistory, SeatingPlan, generateSeating, seedCutSeating, wheelSeating,
+} = _seating;
+const { R, sum } = _rat;
+
+const SCORING_PHASES = ['qualifying', 'final'];
+const ALL_PHASES = ['qualifying', 'final', 'free_play'];
+
+const DEFAULT_CONFIG = {
+  plannedRounds: 6,
+  hanchanMinutes: 90,
+  breakMinutes: 30,
+  seating: {
+    weights: { repeat: 100, wind: 3, table: 1, club: 25 },
+    iterations: 30000,
+    restarts: 3,
+    timeBudget: 3.0,
+    method: 'optimise',
+  },
+  cut: {
+    size: 4,
+    rounds: 2,
+    carry: 'reset',
+    seeding: 'snake',
+    freePlayForRest: true,
+    applied: false,
+    qualified: [],
+    carryScores: {},
+  },
+  online: { platform: '', note: '' },
+  venue: '',
+  rulesetLabel: 'WRC 2025',
+};
+
+/** A request that cannot be carried out, with a message meant for the user. */
+class StoreError extends Error {}
+
+const now = () => new Date().toISOString().replace(/\.\d+Z$/, 'Z');
+
+function deepMerge(base, updates) {
+  const out = { ...base };
+  for (const [key, value] of Object.entries(updates || {})) {
+    if (value && typeof value === 'object' && !Array.isArray(value)
+        && out[key] && typeof out[key] === 'object' && !Array.isArray(out[key])) {
+      out[key] = deepMerge(out[key], value);
+    } else {
+      out[key] = value;
+    }
+  }
+  return out;
+}
+
+const clone = (value) => JSON.parse(JSON.stringify(value));
+
+/* -------------------------------------------------------- the data shape */
+
+function emptyTournament(id, name, { mode = 'in_person', rules = {}, config = {} } = {}) {
+  const stamp = now();
+  return {
+    id,
+    name,
+    mode,
+    status: 'setup',
+    rules: new ScoreRules(rules).toJSON(),
+    config: deepMerge(DEFAULT_CONFIG, config),
+    createdAt: stamp,
+    updatedAt: stamp,
+    nextPlayerId: 1,
+    nextRoundId: 1,
+    nextPenaltyId: 1,
+    players: [],    // { id, name, club, contact, externalId, status, role, manualTiebreak, notes }
+    rounds: [],     // { id, number, phase, label, status, seating, seed, createdAt, closedAt,
+                    //   tables: [{ tableNumber, riichiLeft, status, enteredBy, verifiedBy,
+                    //              lobby, seats: [{ seatIndex, playerId }],
+                    //              results: { playerId: {rawScore, chombo, penaltyPoints, penaltyNote} } }],
+                    //   byes: [{ playerId, score }] }
+    penalties: [],  // { id, playerId, roundId, points, reason, createdAt }
+    events: [],     // { at, kind, payload }
+  };
+}
+
+/* ------------------------------------------------------------------ store */
+
+class TournamentStore {
+  /**
+   * @param {object} doc      the tournament object graph (or null for none yet)
+   * @param {function} onChange  called after every mutation: (doc, kind, payload)
+   */
+  constructor(doc = null, onChange = null) {
+    this.doc = doc;
+    this.onChange = onChange;
+    this.lastError = null;
+  }
+
+  /* -------------------------------------------------------------- hooks */
+
+  changed(kind, payload = {}) {
+    if (!this.doc) return;
+    this.doc.updatedAt = now();
+    this.doc.events.push({ at: now(), kind, payload: clone(payload) });
+    if (this.doc.events.length > 5000) this.doc.events.splice(0, this.doc.events.length - 5000);
+    if (this.onChange) {
+      try {
+        this.onChange(this.doc, kind, payload);
+      } catch (err) {
+        // A failed backup must never lose the edit.
+        this.lastError = String(err && err.message ? err.message : err);
+        this.doc.events.push({
+          at: now(), kind: 'backup_failed', payload: { error: this.lastError, after: kind },
+        });
+      }
+    }
+  }
+
+  require() {
+    if (!this.doc) throw new StoreError('No tournament is open.');
+    return this.doc;
+  }
+
+  get rules() {
+    return ScoreRules.fromJSON(this.require().rules);
+  }
+
+  /* -------------------------------------------------------- tournaments */
+
+  create(name, { mode = 'in_person', rules = {}, config = {}, id = null } = {}) {
+    const trimmed = (name || '').trim();
+    if (!trimmed) throw new StoreError('The tournament needs a name.');
+    this.doc = emptyTournament(id || `t${Date.now()}`, trimmed, { mode, rules, config });
+    this.changed('tournament_created', { name: trimmed, mode });
+    return this.doc;
+  }
+
+  load(doc) {
+    this.doc = doc;
+    return this.doc;
+  }
+
+  update({ name, mode, status, rules, config } = {}) {
+    const t = this.require();
+    const newName = name === undefined ? t.name : String(name).trim();
+    if (!newName) throw new StoreError('The tournament needs a name.');
+    const newRules = rules === undefined ? t.rules : deepMerge(t.rules, rules);
+    // Validate before storing, so a bad uma can never be saved.
+    new ScoreRules(newRules);
+    t.name = newName;
+    t.mode = mode || t.mode;
+    t.status = status || t.status;
+    t.rules = new ScoreRules(newRules).toJSON();
+    if (config !== undefined) t.config = deepMerge(t.config, config);
+    this.changed('tournament_updated', { name: newName });
+    return t;
+  }
+
+  /* ------------------------------------------------------------ players */
+
+  addPlayer(name, {
+    club = '', contact = '', externalId = '', role = 'player', notes = '',
+  } = {}) {
+    const t = this.require();
+    const trimmed = (name || '').trim();
+    if (!trimmed) throw new StoreError('A player needs a name.');
+    if (!['player', 'sit_in'].includes(role)) throw new StoreError(`Unknown player role: ${role}`);
+    const player = {
+      id: t.nextPlayerId++,
+      name: trimmed,
+      club: club.trim(),
+      contact: contact.trim(),
+      externalId: externalId.trim(),
+      status: 'active',
+      role,
+      manualTiebreak: '0',
+      notes: notes.trim(),
+      createdAt: now(),
+    };
+    t.players.push(player);
+    this.changed('player_added', { playerId: player.id, name: trimmed });
+    return player;
+  }
+
+  /**
+   * Add players from pasted text: one per line, a comma or tab separating the
+   * name from the club, so a roster pastes straight out of a spreadsheet.
+   */
+  addPlayersBulk(text) {
+    const t = this.require();
+    const seen = new Set(t.players.map((p) => p.name.toLowerCase()));
+    const added = [];
+    for (const rawLine of String(text || '').split(/\r?\n/)) {
+      const line = rawLine.trim();
+      if (!line || line.startsWith('#')) continue;
+      const parts = line.replace(/\t/g, ',').split(',').map((p) => p.trim());
+      const name = parts[0];
+      if (!name || seen.has(name.toLowerCase())) continue;
+      added.push(this.addPlayer(name, { club: parts[1] || '', contact: parts[2] || '' }));
+      seen.add(name.toLowerCase());
+    }
+    return added;
+  }
+
+  listPlayers() {
+    return [...this.require().players].sort((a, b) =>
+      a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
+  }
+
+  playingPlayers() {
+    return this.listPlayers().filter((p) => p.status === 'active');
+  }
+
+  findPlayer(playerId) {
+    const p = this.require().players.find((x) => x.id === Number(playerId));
+    if (!p) throw new StoreError(`No player with id ${playerId}.`);
+    return p;
+  }
+
+  updatePlayer(playerId, fields = {}) {
+    const player = this.findPlayer(playerId);
+    const allowed = ['name', 'club', 'contact', 'externalId', 'status', 'role',
+      'manualTiebreak', 'notes'];
+    const changes = {};
+    for (const [k, v] of Object.entries(fields)) {
+      if (allowed.includes(k) && v !== undefined && v !== null) changes[k] = v;
+    }
+    if (changes.name !== undefined) {
+      changes.name = String(changes.name).trim();
+      if (!changes.name) throw new StoreError('A player needs a name.');
+    }
+    if (changes.status !== undefined
+        && !['active', 'withdrawn', 'disqualified'].includes(changes.status)) {
+      throw new StoreError(`Unknown status: ${changes.status}`);
+    }
+    if (changes.role !== undefined && !['player', 'sit_in'].includes(changes.role)) {
+      throw new StoreError(`Unknown player role: ${changes.role}`);
+    }
+    if (changes.manualTiebreak !== undefined) {
+      changes.manualTiebreak = R(changes.manualTiebreak).toString();
+    }
+    if (!Object.keys(changes).length) return player;
+    Object.assign(player, changes);
+    this.changed('player_updated', { playerId: player.id, changes });
+    return player;
+  }
+
+  deletePlayer(playerId) {
+    const t = this.require();
+    const player = this.findPlayer(playerId);
+    const hasPlayed = t.rounds.some((r) =>
+      r.tables.some((tb) => tb.results && tb.results[player.id] !== undefined));
+    if (hasPlayed) {
+      throw new StoreError(
+        `${player.name} already has results recorded. `
+        + 'Withdraw them instead of deleting, so the history stays intact.');
+    }
+    t.players = t.players.filter((p) => p.id !== player.id);
+    this.changed('player_deleted', { playerId: player.id, name: player.name });
+  }
+
+  /* ------------------------------------------------------------- rounds */
+
+  listRounds() {
+    return [...this.require().rounds].sort((a, b) => a.number - b.number);
+  }
+
+  findRound(roundId) {
+    const r = this.require().rounds.find((x) => x.id === Number(roundId));
+    if (!r) throw new StoreError(`No round with id ${roundId}.`);
+    return r;
+  }
+
+  openRound() {
+    return this.listRounds().find((r) => r.status !== 'complete') || null;
+  }
+
+  history() {
+    const t = this.require();
+    const ppt = this.rules.playersPerTable;
+    const history = new SeatingHistory(ppt);
+    for (const round of this.listRounds()) {
+      history.record(this.planForRound(round));
+    }
+    return history;
+  }
+
+  planForRound(round) {
+    const ppt = this.rules.playersPerTable;
+    const tables = [...round.tables]
+      .sort((a, b) => a.tableNumber - b.tableNumber)
+      .map((t) => {
+        const seats = new Array(ppt).fill(null);
+        for (const s of t.seats) seats[s.seatIndex] = s.playerId;
+        return seats;
+      });
+    const first = round.tables.length
+      ? Math.min(...round.tables.map((t) => t.tableNumber))
+      : 1;
+    return new SeatingPlan({
+      tables,
+      byes: round.byes.map((b) => b.playerId),
+      firstTableNumber: first,
+    });
+  }
+
+  phasePool(phase) {
+    const t = this.require();
+    const active = this.playingPlayers();
+    if (phase !== 'final') return active;
+    const qualified = new Set((t.config.cut.qualified || []).map(Number));
+    if (!qualified.size) {
+      throw new StoreError(
+        'No cut has been made yet. Make the cut first, then seat the finals.');
+    }
+    return active.filter((p) => qualified.has(p.id));
+  }
+
+  byeScoresFor(byes) {
+    if (!byes.length) return {};
+    const rules = this.rules;
+    if (rules.byeMode === 'fixed') {
+      const value = rules.quantize(rules.byeScore);
+      return Object.fromEntries(byes.map((p) => [p, value.toFixed(rules.scorePrecision)]));
+    }
+    const records = new Map(this.records('overall').map((r) => [r.playerId, r]));
+    const out = {};
+    for (const pid of byes) {
+      const rec = records.get(Number(pid));
+      if (rec && rec.hanchanScores.length) {
+        const mean = sum(rec.hanchanScores).div(R(rec.hanchanScores.length));
+        out[pid] = rules.quantize(mean).toFixed(rules.scorePrecision);
+      } else {
+        out[pid] = rules.quantize(R(0)).toFixed(rules.scorePrecision);
+      }
+    }
+    return out;
+  }
+
+  defaultLabel(phase, number) {
+    if (phase === 'final') return `Final hanchan ${number}`;
+    if (phase === 'free_play') return `Free play ${number}`;
+    return `Hanchan ${number}`;
+  }
+
+  generateRound({
+    phase = 'qualifying', label = '', seed = null, playerIds = null,
+    method = null, locked = null, forceBye = [],
+  } = {}) {
+    const t = this.require();
+    if (!ALL_PHASES.includes(phase)) throw new StoreError(`Unknown phase: ${phase}`);
+    const rules = this.rules;
+    const ppt = rules.playersPerTable;
+
+    const open = this.openRound();
+    if (open) {
+      throw new StoreError(
+        `Round ${open.number} is still open. `
+        + 'Finish entering its scores and close it first.');
+    }
+
+    let pool;
+    if (playerIds === null) {
+      pool = this.phasePool(phase);
+    } else {
+      const known = new Map(t.players.map((p) => [p.id, p]));
+      pool = playerIds.map((i) => known.get(Number(i))).filter(Boolean);
+    }
+    if (pool.length < ppt) {
+      throw new StoreError(
+        `Need at least ${ppt} players to seat a table; ${pool.length} available.`);
+    }
+
+    const cfg = t.config.seating || {};
+    const ids = pool.map((p) => p.id);
+    const clubs = new Map(pool.map((p) => [p.id, p.club || '']));
+    const nextNumber = 1 + t.rounds.reduce((m, r) => Math.max(m, r.number), 0);
+    const actualSeed = (seed === null || seed === undefined || seed === '')
+      ? nextNumber * 7919 + ids.length
+      : Number(seed);
+    const chosen = method || cfg.method || 'optimise';
+    const history = this.history();
+
+    const searchOptions = {
+      playersPerTable: ppt,
+      weights: cfg.weights,
+      clubs,
+      seed: actualSeed,
+      iterations: Number(cfg.iterations ?? 30000),
+      restarts: Number(cfg.restarts ?? 3),
+      timeBudget: Number(cfg.timeBudget ?? 3.0),
+      locked,
+      forceBye,
+    };
+
+    let plan;
+    if (phase === 'final' && chosen !== 'manual') {
+      const idSet = new Set(ids);
+      const ranked = this.standings('qualifying')
+        .filter((s) => idSet.has(s.playerId))
+        .map((s) => s.playerId);
+      for (const i of ids) if (!ranked.includes(i)) ranked.push(i);
+      const finalsSoFar = t.rounds.filter((r) => r.phase === 'final').length;
+      if (finalsSoFar === 0) {
+        plan = seedCutSeating(ranked, {
+          playersPerTable: ppt,
+          style: (t.config.cut || {}).seeding || 'snake',
+        });
+      } else {
+        // Later final rounds re-pair, so the same four do not always sit together.
+        plan = generateSeating(ranked, history, searchOptions);
+      }
+    } else if (chosen === 'wheel') {
+      [plan] = wheelSeating(ids, 1, { playersPerTable: ppt, seed: actualSeed });
+    } else {
+      let initial = null;
+      if (ids.length >= 48 && history.met.size) {
+        // On a big field, start the search from a wheel round.
+        initial = wheelSeating(ids, 1, { playersPerTable: ppt, seed: actualSeed })[0].tables;
+      }
+      plan = generateSeating(ids, history, {
+        ...searchOptions,
+        neverBye: pool.filter((p) => p.role === 'sit_in').map((p) => p.id),
+        initial,
+      });
+    }
+
+    const byeValues = this.byeScoresFor(plan.byes);
+    const round = {
+      id: t.nextRoundId++,
+      number: nextNumber,
+      phase,
+      label: label || this.defaultLabel(phase, nextNumber),
+      status: 'open',
+      seating: { metrics: plan.metrics, method: chosen, cost: plan.cost },
+      seed: actualSeed,
+      createdAt: now(),
+      closedAt: null,
+      tables: plan.numberedTables().map(({ tableNumber, seats }) => ({
+        tableNumber,
+        riichiLeft: 0,
+        status: 'pending',
+        enteredBy: '',
+        verifiedBy: '',
+        lobby: '',
+        updatedAt: now(),
+        seats: seats.map((playerId, seatIndex) => ({ seatIndex, playerId })),
+        results: {},
+      })),
+      byes: plan.byes.map((playerId) => ({ playerId, score: byeValues[playerId] })),
+    };
+    t.rounds.push(round);
+    if (t.status === 'setup') t.status = 'running';
+
+    this.changed('round_generated', {
+      roundId: round.id,
+      number: round.number,
+      phase,
+      tables: round.tables.length,
+      byes: plan.byes,
+      seed: actualSeed,
+      method: chosen,
+      cost: plan.cost,
+    });
+    return this.getRound(round.id);
+  }
+
+  /** A round with names, results and computed outcomes attached. */
+  getRound(roundId) {
+    const t = this.require();
+    const round = this.findRound(roundId);
+    const rules = this.rules;
+    const names = new Map(t.players.map((p) => [p.id, p]));
+
+    const tables = [...round.tables]
+      .sort((a, b) => a.tableNumber - b.tableNumber)
+      .map((tb) => {
+        const seats = [...tb.seats].sort((a, b) => a.seatIndex - b.seatIndex).map((s) => {
+          const player = s.playerId === null ? null : names.get(s.playerId);
+          const res = (tb.results || {})[s.playerId];
+          return {
+            seatIndex: s.seatIndex,
+            seatWind: SEAT_WINDS[s.seatIndex] ?? '?',
+            playerId: s.playerId,
+            name: player ? player.name : null,
+            club: player ? player.club : '',
+            rawScore: res ? res.rawScore : null,
+            chombo: res ? res.chombo : 0,
+            penaltyPoints: res ? res.penaltyPoints : '0',
+            penaltyNote: res ? res.penaltyNote : '',
+          };
+        });
+        return {
+          tableNumber: tb.tableNumber,
+          riichiLeft: tb.riichiLeft,
+          status: tb.status,
+          enteredBy: tb.enteredBy,
+          verifiedBy: tb.verifiedBy,
+          lobby: tb.lobby,
+          seats,
+          outcome: this.tableOutcome(rules, tb, seats),
+        };
+      });
+
+    return {
+      ...round,
+      tables,
+      byes: round.byes.map((b) => ({
+        playerId: b.playerId,
+        name: (names.get(b.playerId) || {}).name || '?',
+        score: b.score,
+      })),
+      tablesTotal: tables.length,
+      tablesReported: tables.filter((x) => ['entered', 'verified'].includes(x.status)).length,
+    };
+  }
+
+  tableOutcome(rules, rawTable, seats) {
+    const filled = seats.filter((s) => s.rawScore !== null && s.rawScore !== undefined);
+    if (filled.length !== rules.playersPerTable) return null;
+    const ts = tableScore({
+      tableNumber: rawTable.tableNumber,
+      riichiLeft: rawTable.riichiLeft,
+      seats: filled.map((s) => seatScore({
+        playerId: s.playerId,
+        seat: s.seatIndex,
+        rawScore: s.rawScore,
+        chombo: s.chombo,
+        penaltyPoints: s.penaltyPoints,
+        penaltyNote: s.penaltyNote,
+      })),
+    });
+    const outcome = scoreTable(rules, ts);
+    const p = rules.scorePrecision;
+    return {
+      ok: outcome.ok,
+      issues: outcome.issues,
+      seats: outcome.seats.map((o) => ({
+        playerId: o.playerId,
+        seatIndex: o.seat,
+        seatWind: o.seatWind,
+        placement: o.placement,
+        sharedPlacement: o.sharedPlacement,
+        scoreDelta: o.scoreDelta.toFixed(p),
+        uma: o.uma.toFixed(p),
+        oka: o.oka.toFixed(p),
+        hanchanScore: o.hanchanScore.toFixed(p),
+        penaltyPoints: o.penaltyPoints.toFixed(p),
+      })),
+    };
+  }
+
+  reseatRound(roundId, seed = null) {
+    const t = this.require();
+    const detail = this.getRound(roundId);
+    if (detail.tablesReported) {
+      throw new StoreError(
+        'Scores have already been entered for this round, so the seating cannot be '
+        + 'redrawn. Clear the entered tables first.');
+    }
+    const { number, phase, label } = detail;
+    t.rounds = t.rounds.filter((r) => r.id !== Number(roundId));
+    if (!t.rounds.length && t.status === 'running') t.status = 'setup';
+    const fresh = this.generateRound({ phase, label, seed });
+    this.changed('round_reseated', { roundNumber: number, roundId: fresh.id });
+    return fresh;
+  }
+
+  /** Swap two seated players, or move one into a bye slot. */
+  swapSeats(roundId, playerA, playerB) {
+    const round = this.findRound(roundId);
+    if (round.status === 'complete') {
+      throw new StoreError('This round is closed. Reopen it before changing seats.');
+    }
+    const a = Number(playerA);
+    const b = Number(playerB);
+
+    for (const pid of [a, b]) {
+      if (round.tables.some((tb) => (tb.results || {})[pid] !== undefined)) {
+        throw new StoreError(
+          'One of those players already has a score for this round. '
+          + 'Clear the table result before moving them.');
+      }
+    }
+
+    const seatOf = (pid) => {
+      for (const tb of round.tables) {
+        const seat = tb.seats.find((s) => s.playerId === pid);
+        if (seat) return seat;
+      }
+      return null;
+    };
+    const seatA = seatOf(a);
+    const seatB = seatOf(b);
+    const byeA = round.byes.find((x) => x.playerId === a);
+    const byeB = round.byes.find((x) => x.playerId === b);
+
+    if (seatA && seatB) {
+      seatA.playerId = b;
+      seatB.playerId = a;
+    } else if (seatA && byeB) {
+      seatA.playerId = b;
+      round.byes = round.byes.filter((x) => x.playerId !== b);
+      round.byes.push({ playerId: a, score: byeB.score });
+    } else if (seatB && byeA) {
+      seatB.playerId = a;
+      round.byes = round.byes.filter((x) => x.playerId !== a);
+      round.byes.push({ playerId: b, score: byeA.score });
+    } else {
+      throw new StoreError(
+        'Both players must be in this round (seated or on a bye) to swap.');
+    }
+
+    this.changed('seats_swapped', { roundId: round.id, a, b });
+    return this.getRound(round.id);
+  }
+
+  setTableLobby(roundId, tableNumber, lobby) {
+    const round = this.findRound(roundId);
+    const table = round.tables.find((t) => t.tableNumber === Number(tableNumber));
+    if (!table) throw new StoreError(`Table ${tableNumber} does not exist in this round.`);
+    table.lobby = String(lobby || '').trim();
+    table.updatedAt = now();
+    this.changed('lobby_set', { roundId: round.id, table: table.tableNumber, lobby: table.lobby });
+    return this.getRound(round.id);
+  }
+
+  /* ------------------------------------------------------------ results */
+
+  /** Score a table without saving, so the interface can show what will happen. */
+  previewTable(roundId, tableNumber, entries, { riichiLeft = 0 } = {}) {
+    const t = this.require();
+    const round = this.findRound(roundId);
+    const rules = this.rules;
+    const table = round.tables.find((x) => x.tableNumber === Number(tableNumber));
+    if (!table) throw new StoreError(`Table ${tableNumber} does not exist in this round.`);
+    const seatOf = new Map(table.seats.filter((s) => s.playerId !== null)
+      .map((s) => [s.playerId, s.seatIndex]));
+    const names = new Map(t.players.map((p) => [p.id, p.name]));
+
+    const seats = [];
+    for (const entry of entries) {
+      const pid = Number(entry.playerId);
+      if (!seatOf.has(pid)) continue;
+      const raw = entry.rawScore;
+      if (raw === null || raw === undefined || raw === '') continue;
+      seats.push(seatScore({
+        playerId: pid,
+        seat: seatOf.get(pid),
+        rawScore: Number(raw),
+        chombo: Number(entry.chombo) || 0,
+        penaltyPoints: entry.penaltyPoints || 0,
+        penaltyNote: entry.penaltyNote || '',
+      }));
+    }
+
+    const complete = seats.length === rules.playersPerTable;
+    const outcome = scoreTable(rules,
+      tableScore({ tableNumber: Number(tableNumber), seats, riichiLeft: Number(riichiLeft) || 0 }),
+      { validate: complete });
+    const p = rules.scorePrecision;
+    return {
+      complete,
+      ok: complete ? outcome.ok : false,
+      tableTotal: rules.tableTotal,
+      enteredTotal: seats.reduce((a, s) => a + s.rawScore, 0) + 1000 * (Number(riichiLeft) || 0),
+      issues: outcome.issues,
+      seats: [...outcome.seats].sort((a, b) => a.placement - b.placement).map((o) => ({
+        playerId: o.playerId,
+        name: names.get(o.playerId) || '?',
+        seatIndex: o.seat,
+        seatWind: o.seatWind,
+        placement: o.placement,
+        sharedPlacement: o.sharedPlacement,
+        scoreDelta: o.scoreDelta.toFixed(p),
+        uma: o.uma.toFixed(p),
+        oka: o.oka.toFixed(p),
+        hanchanScore: o.hanchanScore.toFixed(p),
+        penaltyPoints: o.penaltyPoints.toFixed(p),
+      })),
+    };
+  }
+
+  /** Record one table's result. */
+  saveTable(roundId, tableNumber, entries, {
+    riichiLeft = 0, enteredBy = '', verifiedBy = '', allowIssues = false,
+  } = {}) {
+    const round = this.findRound(roundId);
+    if (round.status === 'complete') {
+      throw new StoreError('This round is closed. Reopen it before changing a score.');
+    }
+    const rules = this.rules;
+    const table = round.tables.find((x) => x.tableNumber === Number(tableNumber));
+    if (!table) throw new StoreError(`Table ${tableNumber} does not exist in this round.`);
+    const seatOf = new Map(table.seats.filter((s) => s.playerId !== null)
+      .map((s) => [s.playerId, s.seatIndex]));
+
+    const seats = [];
+    for (const entry of entries) {
+      const pid = Number(entry.playerId);
+      if (!seatOf.has(pid)) {
+        throw new StoreError(`Player ${pid} is not seated at table ${tableNumber}.`);
+      }
+      const raw = entry.rawScore;
+      if (raw === null || raw === undefined || raw === '') {
+        throw new StoreError('Every player at the table needs a score.');
+      }
+      seats.push(seatScore({
+        playerId: pid,
+        seat: seatOf.get(pid),
+        rawScore: Number(raw),
+        chombo: Number(entry.chombo) || 0,
+        penaltyPoints: entry.penaltyPoints || 0,
+        penaltyNote: String(entry.penaltyNote || '').trim(),
+      }));
+    }
+
+    const outcome = scoreTable(rules, tableScore({
+      tableNumber: Number(tableNumber), seats, riichiLeft: Number(riichiLeft) || 0,
+    }));
+    const blocking = outcome.issues.filter((i) => i.severity === 'error');
+    if (blocking.length && !allowIssues) {
+      throw new StoreError(blocking.map((i) => i.message).join(' '));
+    }
+
+    table.results = {};
+    for (const s of seats) {
+      table.results[s.playerId] = {
+        rawScore: s.rawScore,
+        chombo: s.chombo,
+        penaltyPoints: s.penaltyPoints.toString(),
+        penaltyNote: s.penaltyNote,
+      };
+    }
+    table.riichiLeft = Number(riichiLeft) || 0;
+    table.status = verifiedBy ? 'verified' : 'entered';
+    table.enteredBy = String(enteredBy).trim();
+    table.verifiedBy = String(verifiedBy).trim();
+    table.updatedAt = now();
+
+    this.changed('table_saved', {
+      roundId: round.id,
+      roundNumber: round.number,
+      table: table.tableNumber,
+      riichiLeft: table.riichiLeft,
+      enteredBy: table.enteredBy,
+      scores: Object.fromEntries(seats.map((s) => [s.playerId, s.rawScore])),
+      issues: outcome.issues,
+    });
+    return this.getRound(round.id);
+  }
+
+  clearTable(roundId, tableNumber) {
+    const round = this.findRound(roundId);
+    const table = round.tables.find((x) => x.tableNumber === Number(tableNumber));
+    if (!table) throw new StoreError(`Table ${tableNumber} does not exist in this round.`);
+    table.results = {};
+    table.riichiLeft = 0;
+    table.status = 'pending';
+    table.enteredBy = '';
+    table.verifiedBy = '';
+    table.updatedAt = now();
+    this.changed('table_cleared', { roundId: round.id, table: table.tableNumber });
+    return this.getRound(round.id);
+  }
+
+  verifyTable(roundId, tableNumber, verifiedBy) {
+    const round = this.findRound(roundId);
+    const table = round.tables.find((x) => x.tableNumber === Number(tableNumber));
+    if (!table) throw new StoreError(`Table ${tableNumber} does not exist in this round.`);
+    if (table.status === 'pending') {
+      throw new StoreError("Enter the table's scores before verifying it.");
+    }
+    table.status = 'verified';
+    table.verifiedBy = String(verifiedBy || '').trim();
+    table.updatedAt = now();
+    this.changed('table_verified', {
+      roundId: round.id, table: table.tableNumber, by: table.verifiedBy,
+    });
+    return this.getRound(round.id);
+  }
+
+  closeRound(roundId, { force = false } = {}) {
+    const detail = this.getRound(roundId);
+    const round = this.findRound(roundId);
+    const missing = detail.tables
+      .filter((t) => !['entered', 'verified'].includes(t.status))
+      .map((t) => t.tableNumber);
+    if (missing.length && !force) {
+      throw new StoreError(
+        `These tables have no result yet: ${missing.join(', ')}. `
+        + 'Enter them, or close the round anyway if they did not play.');
+    }
+    round.status = 'complete';
+    round.closedAt = now();
+    this.changed('round_closed', {
+      roundId: round.id, number: round.number,
+      forced: missing.length > 0, missingTables: missing,
+    });
+    return this.getRound(roundId);
+  }
+
+  reopenRound(roundId) {
+    const t = this.require();
+    const round = this.findRound(roundId);
+    const later = t.rounds.find((r) => r.number > round.number);
+    if (later) {
+      throw new StoreError(
+        `Round ${later.number} has already been seated. `
+        + 'Delete it before reopening an earlier round.');
+    }
+    round.status = 'open';
+    round.closedAt = null;
+    this.changed('round_reopened', { roundId: round.id, number: round.number });
+    return this.getRound(roundId);
+  }
+
+  deleteRound(roundId) {
+    const t = this.require();
+    const round = this.findRound(roundId);
+    const later = t.rounds.find((r) => r.number > round.number);
+    if (later) {
+      throw new StoreError(
+        `Round ${later.number} comes after this one. `
+        + 'Delete rounds from the last one backwards.');
+    }
+    t.rounds = t.rounds.filter((r) => r.id !== round.id);
+    this.changed('round_deleted', { roundId: round.id, number: round.number });
+  }
+
+  /* ---------------------------------------------------------- penalties */
+
+  addPenalty(playerId, points, { reason = '', roundId = null } = {}) {
+    const t = this.require();
+    this.findPlayer(playerId);
+    const penalty = {
+      id: t.nextPenaltyId++,
+      playerId: Number(playerId),
+      roundId: roundId === null || roundId === '' ? null : Number(roundId),
+      points: R(points || 0).toString(),
+      reason: String(reason || '').trim(),
+      createdAt: now(),
+    };
+    t.penalties.push(penalty);
+    this.changed('penalty_added', {
+      penaltyId: penalty.id, playerId: penalty.playerId,
+      points: penalty.points, reason: penalty.reason,
+    });
+    return penalty;
+  }
+
+  listPenalties() {
+    const t = this.require();
+    const names = new Map(t.players.map((p) => [p.id, p.name]));
+    const rounds = new Map(t.rounds.map((r) => [r.id, r.number]));
+    return t.penalties.map((p) => ({
+      ...p,
+      playerName: names.get(p.playerId) || '?',
+      roundNumber: p.roundId === null ? null : (rounds.get(p.roundId) ?? null),
+    }));
+  }
+
+  deletePenalty(penaltyId) {
+    const t = this.require();
+    const penalty = t.penalties.find((p) => p.id === Number(penaltyId));
+    if (!penalty) throw new StoreError(`No penalty with id ${penaltyId}.`);
+    t.penalties = t.penalties.filter((p) => p.id !== penalty.id);
+    this.changed('penalty_deleted', { penaltyId: penalty.id, playerId: penalty.playerId });
+  }
+
+  /* ---------------------------------------------------------- standings */
+
+  records(scope = 'overall') {
+    const t = this.require();
+    const rules = this.rules;
+    const cut = t.config.cut || {};
+
+    let phases;
+    if (scope === 'qualifying') phases = ['qualifying'];
+    else if (scope === 'final') phases = ['final'];
+    else phases = SCORING_PHASES;
+
+    let ranked = t.players.filter((p) => p.role === 'player' && p.status !== 'disqualified');
+    if (scope === 'final') {
+      const qualified = new Set((cut.qualified || []).map(Number));
+      ranked = ranked.filter((p) => qualified.has(p.id));
+    }
+
+    const records = new Map(ranked.map((p) => [p.id, playerRecord({
+      playerId: p.id, name: p.name, manualTiebreak: p.manualTiebreak || 0,
+    })]));
+
+    for (const round of this.listRounds()) {
+      if (!phases.includes(round.phase)) continue;
+      for (const table of round.tables) {
+        const entries = Object.entries(table.results || {});
+        if (entries.length !== rules.playersPerTable) continue;
+        const seatOf = new Map(table.seats.filter((s) => s.playerId !== null)
+          .map((s) => [s.playerId, s.seatIndex]));
+        const outcome = scoreTable(rules, tableScore({
+          tableNumber: table.tableNumber,
+          riichiLeft: table.riichiLeft,
+          seats: entries.map(([pid, res]) => seatScore({
+            playerId: Number(pid),
+            seat: seatOf.get(Number(pid)) ?? 0,
+            rawScore: res.rawScore,
+            chombo: res.chombo,
+            penaltyPoints: res.penaltyPoints,
+            penaltyNote: res.penaltyNote,
+          })),
+        }), { validate: false });
+        for (const seat of outcome.seats) {
+          const rec = records.get(seat.playerId);
+          if (!rec) continue;
+          rec.hanchanScores.push(seat.hanchanScore);
+          rec.placements.push(seat.placement);
+          rec.deltas.push(seat.scoreDelta);
+          if (!seat.penaltyPoints.isZero) rec.penalties.push(seat.penaltyPoints);
+        }
+      }
+      for (const bye of round.byes) {
+        const rec = records.get(bye.playerId);
+        if (rec) rec.byeScores.push(R(bye.score));
+      }
+    }
+
+    for (const penalty of t.penalties) {
+      const rec = records.get(penalty.playerId);
+      if (rec) rec.penalties.push(R(penalty.points));
+    }
+
+    if (scope === 'final' && ['full', 'half'].includes(cut.carry)) {
+      const factor = cut.carry === 'full' ? R(1) : R('0.5');
+      for (const [pid, value] of Object.entries(cut.carryScores || {})) {
+        const rec = records.get(Number(pid));
+        if (rec) rec.carryOver = rules.quantize(R(value).mul(factor));
+      }
+    }
+
+    return [...records.values()];
+  }
+
+  standings(scope = 'overall') {
+    return buildStandings(this.rules, this.records(scope));
+  }
+
+  /* ---------------------------------------------------------------- cut */
+
+  applyCut({ size = null, carry = null, rounds = null, freePlayForRest = null } = {}) {
+    const t = this.require();
+    const cut = { ...(t.config.cut || {}) };
+    const cutSize = Number(size === null ? cut.size ?? 4 : size);
+    const cutCarry = carry || cut.carry || 'reset';
+    const cutRounds = Number(rounds === null ? cut.rounds ?? 2 : rounds);
+    if (!['reset', 'full', 'half'].includes(cutCarry)) {
+      throw new StoreError(`Unknown carry-over mode: ${cutCarry}`);
+    }
+    if (cutSize < 1) throw new StoreError('The cut needs at least one player.');
+
+    const open = this.openRound();
+    if (open) {
+      throw new StoreError(`Round ${open.number} is still open. Close it before cutting.`);
+    }
+
+    const table = this.standings('qualifying');
+    if (table.length < cutSize) {
+      throw new StoreError(
+        `Only ${table.length} ranked players; cannot cut to a top ${cutSize}.`);
+    }
+
+    const qualified = table.slice(0, cutSize).map((s) => s.playerId);
+    const boundary = table[cutSize - 1];
+    const contested = table.filter((s) =>
+      s.rank === boundary.rank && !qualified.includes(s.playerId));
+    if (contested.length) {
+      const names = table.filter((s) => s.rank === boundary.rank).map((s) => s.name);
+      throw new StoreError(
+        `The cut line is tied: ${names.join(', ')} share rank ${boundary.rank}. `
+        + 'Settle it (a coin toss, per WRC) by setting a manual tiebreak on the roster, '
+        + 'then cut again.');
+    }
+
+    Object.assign(cut, {
+      size: cutSize,
+      carry: cutCarry,
+      rounds: cutRounds,
+      applied: true,
+      appliedAt: now(),
+      qualified,
+      carryScores: Object.fromEntries(
+        table.slice(0, cutSize).map((s) => [s.playerId, s.tournamentScore.toString()])),
+      freePlayForRest: freePlayForRest === null
+        ? (cut.freePlayForRest ?? true)
+        : Boolean(freePlayForRest),
+    });
+    t.config = deepMerge(t.config, { cut });
+    t.status = 'finals';
+    this.changed('cut_applied', {
+      size: cutSize, carry: cutCarry, rounds: cutRounds, qualified,
+      names: table.slice(0, cutSize).map((s) => s.name),
+    });
+    return t;
+  }
+
+  undoCut() {
+    const t = this.require();
+    if (t.rounds.some((r) => r.phase === 'final')) {
+      throw new StoreError(
+        'Final rounds have already been seated. Delete them before undoing the cut.');
+    }
+    t.config = deepMerge(t.config, {
+      cut: { applied: false, qualified: [], carryScores: {} },
+    });
+    t.status = 'running';
+    this.changed('cut_undone', {});
+    return t;
+  }
+
+  /* --------------------------------------------------------------- misc */
+
+  events(limit = 200) {
+    const t = this.require();
+    return t.events.slice(-limit).reverse();
+  }
+
+  summary() {
+    const t = this.require();
+    const rules = this.rules;
+    const players = this.listPlayers();
+    const rounds = this.listRounds().map((r) => {
+      const detail = this.getRound(r.id);
+      return {
+        id: r.id, number: r.number, phase: r.phase, label: r.label, status: r.status,
+        seed: r.seed, createdAt: r.createdAt, closedAt: r.closedAt,
+        tables: detail.tablesTotal, tablesReported: detail.tablesReported,
+        seating: r.seating,
+      };
+    });
+    const active = players.filter((p) => p.status === 'active');
+    return {
+      tournament: { ...t, players: undefined, rounds: undefined, events: undefined },
+      counts: {
+        players: players.length,
+        active: active.length,
+        ranked: active.filter((p) => p.role === 'player').length,
+        sitIns: active.filter((p) => p.role === 'sit_in').length,
+        rounds: rounds.length,
+        roundsComplete: rounds.filter((r) => r.status === 'complete').length,
+      },
+      rulesSummary: {
+        startingPoints: rules.startingPoints,
+        goalPoints: rules.goalPoints,
+        uma: rules.uma.map((u) => u.toString()),
+        oka: rules.oka.toString(),
+        tableTotal: rules.tableTotal,
+        playersPerTable: rules.playersPerTable,
+      },
+      rounds,
+      openRound: rounds.find((r) => r.status !== 'complete') || null,
+    };
+  }
+}
+
+const API = {
+  TournamentStore, StoreError, DEFAULT_CONFIG,
+  SCORING_PHASES, ALL_PHASES, emptyTournament, deepMerge,
+};
+
+if (typeof module !== 'undefined' && module.exports) module.exports = API;
+if (typeof window !== 'undefined') {
+  window.RT = window.RT || {};
+  window.RT.store = API;
+}
+}());

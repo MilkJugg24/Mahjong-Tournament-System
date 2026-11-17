@@ -1,0 +1,254 @@
+# Organiser's guide
+
+How to run an event with this system, start to finish. The planning figures
+come from the ARA's [Tournament-in-a-Box](https://arariichi.org/tournamentinabox)
+guide; the scoring follows [WRC 2025](https://www.worldriichi.org/wrc-rules).
+
+---
+
+## Before the day
+
+### Equipment, per four players
+
+The ARA's checklist, which this system does not change:
+
+| Item | Quantity |
+|---|---|
+| Mahjong set, mat, compass | 1 each per table (+1 spare) |
+| Table | 1 per 4 players, about 6 ft × 6 ft of space |
+| Chairs | 4–6 per table |
+| Report sheet | 1 per table per round |
+| Points reference sheet | 1 per table (+10%) |
+| Pens | 1 per 2 players |
+| Water | 2 bottles per player per day (+20%) |
+| Coffee | 1 carafe per 12 players |
+| First aid kit | 1 |
+
+The ARA costed this at roughly **$101.50 per person** in 2024 buying materials,
+or **$78.50 per person** renting tables and chairs. Allow two months' lead time,
+or six-plus months if you need a hotel. Hotels size rooms at about 10 ft × 10 ft
+per table.
+
+### Staffing
+
+The ARA suggests **1 tournament organiser, 1 judge per 8 tables, 1 runner**,
+plus **3 sit-in players** to fill tables when the field is uneven.
+
+Add your sit-ins to the roster with the role **Sit-in**. They fill tables and
+play normally, but they are never given a bye and never appear in the standings.
+
+### Set the event up in advance
+
+Create the tournament and paste the roster the night before. Then on the day you
+only have to mark no-shows as *Withdrawn* and draw the first round.
+
+Run it on a laptop you can leave open for the day. One machine runs the whole
+event — there is nothing to connect to and nothing to log in to.
+
+### Choose your backup folder first
+
+This is the one setup step that matters. Open **Backups & print** and pick a
+folder before the day starts.
+
+While you work, your results are held inside the browser, and that storage
+belongs to the browser on this computer — **copying the HTML file somewhere else
+does not take the tournament with it.** The backup folder is what makes the event
+portable and what you recover from.
+
+Choose a folder inside **OneDrive, Google Drive or Dropbox** and every round is
+copied off the laptop automatically, with no account to set up. If the machine
+dies at lunchtime, the morning is already safe on another computer.
+
+Picking a folder works in Chrome and Edge. In Safari or Firefox the app asks you
+to save a backup file by hand after each round, and warns you when one is
+overdue — workable, but the Chrome path is the one to prefer for a real event.
+
+---
+
+## A sample day
+
+The ARA's four-round schedule, for reference:
+
+| Time | |
+|---|---|
+| 08:30–09:15 | Sign-in |
+| 09:15–09:30 | Announcements |
+| 09:30 | Hanchan 1 |
+| 11:30 | Hanchan 2 |
+| 13:00 | Lunch |
+| 14:30 | Hanchan 3 |
+| 16:30 | Hanchan 4 |
+| 18:00 | Free play |
+
+Hanchan are **90 minutes** with **no extra hands** once time is called; allow
+about 15 minutes to play out and report and 15 minutes of break, so roughly 30
+minutes between rounds. Call the time remaining at 30, 45, 60 and 75 minutes.
+
+---
+
+## On the day
+
+### 1. Sign-in
+
+Print the sign-in sheet from **Backups & print**. Mark anyone who does not turn
+up as **Withdrawn** on the Players tab — do not delete them, because deleting
+loses their history and is blocked once they have played.
+
+Check the player count on the Players tab before you draw. It tells you directly
+how the field divides, for example:
+
+> 63 playing · 63 ranked · **15 tables** · **3 sitting out each round**
+> (add 1 more, or 3 sit-ins, to fill the tables)
+
+### 2. Draw the seating
+
+**Run the round → Draw the seating.** It takes a second or two and reports what
+it found:
+
+> Hanchan 1 seated: 15 tables, no repeat pairings.
+
+The round header shows repeat pairings and the worst seat-wind gap for any
+player, so you can see the draw's quality at a glance. If you do not like it and
+nothing has been entered yet, **Redraw seating** draws again.
+
+For a very large field in a hurry, the **ARA wheel** option is instant, though
+the optimised draw is better and still only takes a second or two.
+
+Byes rotate automatically: nobody sits out twice before everybody has sat out
+once. To make someone sit out a particular round, you can swap them with a
+seated player.
+
+### 3. Print and lay out
+
+- **Print seating** — a list by table and a list by player. Put the by-player
+  list where people queue.
+- **Print report sheets** — one per table, with the seat winds, the riichi-stick
+  row, the required total, and signature lines for the players and the referee.
+- **Print table numbers** once at the start of the event.
+
+### 4. Play and report
+
+Players fill in the paper sheet and a referee signs it, as WRC requires. The
+runner then types it in.
+
+**Tap a table.** Type the four final scores. As you type:
+
+- the running total is shown against 120,000 and turns green when it is right;
+- with three scores entered, there is a one-tap button to fill in the fourth;
+- once all four are in you see the placements, each player's delta, uma and
+  hanchan score, before saving.
+
+Enter any **riichi sticks left on the table** in the field provided — the
+checksum accounts for them, and they are carried into the standings exactly as
+the rules require.
+
+A table whose scores do not add up cannot be saved by mistake; the message says
+how far out it is. If the paperwork genuinely is wrong and you need to record it
+anyway, that is a deliberate override, not an accident.
+
+Chombo and penalties are under **Chombo and penalties** on the same sheet. A
+chombo takes 30P off that player's tournament score and does not change the
+table total — this is the WRC treatment, and there is no mangan payment.
+
+Mark a table **verified** once a judge has checked the sheet. Tables show as
+*to play*, *entered* or *verified*, so you can see at a glance what is
+outstanding.
+
+### 5. Close the round
+
+**Close this round.** If a table has no result the button says so and asks you
+to confirm. Closing locks the scores, takes a snapshot, and lets you draw the
+next hanchan.
+
+To fix something after closing, reopen the round from the round list — allowed
+as long as no later round has been seated.
+
+---
+
+## Making the cut
+
+When the qualifying rounds are done, go to **Cut & finals**, set the size and
+how many final hanchan, and choose what happens to the points:
+
+- **Reset to zero** — the ARA format: the top 4 start the finals level.
+- **Carry the full score** — qualifying scores carry into the finals.
+- **Carry half** — a middle ground.
+
+The first final round seats by rank (a single table takes ranks 1–4; with more
+than one table the seeds are spread). Later final rounds are re-paired so the
+same four do not sit together every time.
+
+Standings then has three views: **Qualifying**, **Finals**, and **Overall**.
+
+### If the cut line is tied
+
+The cut will refuse and tell you who is level:
+
+> The cut line is tied: Gil, Hal share rank 4. Settle it (a coin toss, per WRC)
+> by setting a manual tiebreak on the roster, then cut again.
+
+WRC's tiebreakers run: score, then most firsts, then fewest fourths, then best
+single hanchan, then a coin toss. The first four are automatic. For the coin
+toss, give the winner a higher **Tiebreak** number on the Players tab — any
+distinct numbers work, higher ranks higher — and make the cut again. Players
+still level are marked with an asterisk in the standings, so you always know
+when a decision is owed.
+
+### Free play for everyone else
+
+Draw a round with the phase set to **Free play**. Those tables are seated and
+printed like any other but are not scored and do not affect the standings.
+
+---
+
+## Backups
+
+You do not need to do anything for backups to happen. After every change the
+system rewrites a full set of CSVs and appends to a log that is never rewritten.
+Each time a round closes it also takes a dated snapshot.
+
+Worth knowing:
+
+- **`live/` is safe to open mid-event.** Files are written to a temporary name
+  and renamed, so you will never read a half-written file.
+- **`log/results_log.csv` is the real safety net.** Every score ever entered is
+  appended there, corrections included. Even if everything else were lost, the
+  event could be rebuilt from it.
+- **`live/results.csv` has a `table_total_check` column** on every row, so the
+  arithmetic can be checked outside this program.
+- **`live/ara_sheet.csv`** is one row per player and one column per round — the
+  ARA spreadsheet layout, for dropping into the sheet you already use.
+
+**Take a snapshot now** before anything risky — reopening a closed round, say,
+or changing a scoring setting mid-event.
+
+If a backup ever fails, the change is still saved, the failure is recorded in
+the event log, and a red notice appears on the Backups tab. Usually it means the
+disk is full or the folder is not writable.
+
+### If the laptop dies
+
+1. Open `riichi-tournament.html` on another computer.
+2. Go to **Events** and use **Load a backup**.
+3. Pick `restore/tournament.json` from your backup folder.
+
+You are back exactly where the last round ended. If that folder was in OneDrive
+or Google Drive, it is already on the new machine.
+
+This is also how you move an event between computers on purpose — at lunch, or
+when handing over to another organiser.
+
+**Keep in mind:** the browser holds the live copy, so whichever machine you carry
+on from becomes the one that matters. Do not run the same event on two computers
+at once and expect them to merge; they will not.
+
+---
+
+## Reference
+
+- Every setting and the rule behind it: [RULES.md](RULES.md).
+- Everything that has happened during the event: `log/audit.csv` in your backup
+  folder, which records every change with a timestamp.
+- Every score ever entered, including corrections: `log/results_log.csv`. This
+  file is only ever appended to, so it is the last thing to trust if anything
+  else looks wrong.

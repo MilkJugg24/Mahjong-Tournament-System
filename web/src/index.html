@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="en" data-theme="">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Mahjong Tournament System</title>
+<meta name="description" content="Run a Riichi Mahjong tournament: players, seating, scores, standings and CSV backups. Works offline.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%231f6f43'/%3E%3Crect x='7' y='5' width='18' height='22' rx='3' fill='%23fff'/%3E%3Ccircle cx='16' cy='12' r='3' fill='%231f6f43'/%3E%3Crect x='12' y='18' width='8' height='2.5' rx='1.2' fill='%231f6f43'/%3E%3C/svg%3E">
+<script>/* RT:VERSION */window.RT_VERSION = 'dev';</script>
+<!--RT:STYLE-->
+<link rel="stylesheet" href="style.css">
+<!--/RT:STYLE-->
+</head>
+<body>
+
+<header class="top">
+  <span class="brand"><span class="tile">&#x1F004;</span> Mahjong Tournament System</span>
+  <span class="event-name" id="eventName"></span>
+  <span class="spacer"></span>
+  <button class="ghost" id="tourBtn" title="Walk through a whole event with demo data">Tutorial</button>
+  <button class="ghost" id="helpBtn" title="How everything works">Help</button>
+  <button class="ghost" id="settingsBtn" title="Settings and about"
+    aria-haspopup="dialog">&#9881; Settings</button>
+  <button class="ghost" id="switchBtn" title="Open another tournament">Switch event</button>
+</header>
+
+<nav class="tabs" id="tabs" role="tablist">
+  <button role="tab" data-view="home" aria-selected="true">Events</button>
+  <button role="tab" data-view="setup" aria-selected="false">Setup</button>
+  <button role="tab" data-view="players" aria-selected="false">Players</button>
+  <button role="tab" data-view="round" aria-selected="false">Run the round</button>
+  <button role="tab" data-view="standings" aria-selected="false">Standings</button>
+  <button role="tab" data-view="finals" aria-selected="false">Cut &amp; finals</button>
+  <button role="tab" data-view="backups" aria-selected="false">Backups &amp; print</button>
+</nav>
+
+<div id="testBanner" role="status"></div>
+
+<main>
+
+<!-- ------------------------------------------------------------ events -->
+<section class="view active" id="view-home">
+  <h1>Tournaments</h1>
+  <p class="lede">Everything is saved in this browser as you go. Pick a backup folder on the
+    Backups tab and it is written to disk as well.</p>
+  <div id="tournamentList"></div>
+
+  <div class="card">
+    <h2>New tournament</h2>
+    <div class="grid two">
+      <label class="field"><span>Name</span>
+        <input type="text" id="newName" placeholder="Autumn Riichi Open 2026" autocomplete="off">
+      </label>
+      <label class="field"><span>Where is it played? <button type="button" class="qmark" data-help="mode" aria-label="What is this?">?</button></span>
+        <select id="newMode">
+          <option value="in_person">In person</option>
+          <option value="online">Online</option>
+        </select>
+      </label>
+      <label class="field"><span>Hanchan before the cut <button type="button" class="qmark" data-help="rounds" aria-label="What is this?">?</button></span>
+        <input type="number" id="newRounds" value="6" min="1" max="30">
+      </label>
+      <label class="field"><span>Cut to top <button type="button" class="qmark" data-help="cut-size" aria-label="What is this?">?</button></span>
+        <input type="number" id="newCut" value="4" min="0" max="64">
+      </label>
+      <label class="field"><span>Final hanchan <button type="button" class="qmark" data-help="final-rounds" aria-label="What is this?">?</button></span>
+        <input type="number" id="newFinalRounds" value="2" min="0" max="10">
+      </label>
+      <label class="field check" style="grid-column:1/-1">
+        <span><input type="checkbox" id="newTestMode"> Test mode
+          <button type="button" class="qmark" data-help="test-mode"
+            aria-label="What is this?">?</button></span>
+        <span class="hint">Practice with made-up players. Nothing is written to
+          your backup folder and nothing is posted to Discord.</span>
+      </label>
+    </div>
+    <div class="btnrow">
+      <button class="primary big" id="createBtn">Create tournament</button>
+    </div>
+  </div>
+</section>
+
+<!-- ------------------------------------------------------------- setup -->
+<section class="view" id="view-setup">
+  <h1>Setup</h1>
+  <p class="lede">The defaults follow the WRC 2025 rules the ARA uses. Change them only if your
+    event differs.</p>
+  <div id="setupBody"></div>
+</section>
+
+<!-- ----------------------------------------------------------- players -->
+<section class="view" id="view-players">
+  <h1>Players</h1>
+  <p class="lede" id="playerLede"></p>
+  <div id="playersBody"></div>
+</section>
+
+<!-- ------------------------------------------------------------- round -->
+<section class="view" id="view-round">
+  <h1 id="roundTitle">Run the round</h1>
+  <p class="lede" id="roundLede"></p>
+  <div id="roundBody"></div>
+</section>
+
+<!-- --------------------------------------------------------- standings -->
+<section class="view" id="view-standings">
+  <h1>Standings</h1>
+  <div class="btnrow" style="margin-bottom:14px">
+    <button data-scope="overall" class="scopeBtn primary">Overall</button>
+    <button data-scope="qualifying" class="scopeBtn">Qualifying</button>
+    <button data-scope="final" class="scopeBtn">Finals</button>
+    <span class="spacer"></span>
+    <button class="ghost" id="printStandings">Print</button>
+  </div>
+  <div id="standingsBody"></div>
+</section>
+
+<!-- ------------------------------------------------------------ finals -->
+<section class="view" id="view-finals">
+  <h1>Cut &amp; finals</h1>
+  <p class="lede">Take the top players through to a finals phase once the qualifying rounds are
+    done.</p>
+  <div id="finalsBody"></div>
+</section>
+
+<!-- ----------------------------------------------------------- backups -->
+<section class="view" id="view-backups">
+  <h1>Backups &amp; print</h1>
+  <p class="lede">Your results live in this browser while you work. Point the app at a folder and
+    they are written to disk too &mdash; that copy is the one that survives.</p>
+  <div id="backupsBody"></div>
+</section>
+
+<!-- -------------------------------------------------------------- help -->
+<section class="view" id="view-help">
+  <h1>Help</h1>
+  <p class="lede">How the app works, and what to do when something goes wrong. For a
+    guided run through a whole event with demo data, use the
+    <b>Tutorial</b> button at the top.</p>
+  <div id="helpBody"></div>
+</section>
+
+</main>
+
+<div id="tutorialBar"></div>
+<div id="helpPop"></div>
+<div id="dialog"></div>
+<div id="toasts"></div>
+
+<!--RT:SCRIPTS-->
+<script src="rational.js"></script>
+<script src="scoring.js"></script>
+<script src="seating.js"></script>
+<script src="store.js"></script>
+<script src="backup.js"></script>
+<script src="persist.js"></script>
+<script src="printing.js"></script>
+<script src="discord.js"></script>
+<script src="help.js"></script>
+<script src="testdata.js"></script>
+<script src="tutorial.js"></script>
+<script src="ui.js"></script>
+<!--/RT:SCRIPTS-->
+</body>
+</html>

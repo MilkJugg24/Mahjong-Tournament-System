@@ -1,0 +1,120 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  unit:
+    name: ${{ matrix.os }} · Node ${{ matrix.node }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        # 20 and 24 bracket the supported range; a break that hits only 22
+        # would have to miss both ends of it, which no change here has done.
+        os: [ubuntu-latest]
+        node: ["20.x", "24.x"]
+        include:
+          # Windows is the cross-platform check that earns its place: it is the
+          # only runner where path separators and line endings differ, which is
+          # what build.js and release.js actually touch.
+          #
+          # There is deliberately no macOS leg, for two separate reasons.
+          #
+          # It bought nothing: macOS is POSIX, so it ran the same code paths as
+          # ubuntu, and it never once failed on its own.
+          #
+          # And it could not be relied on to run at all. Measured over 20 runs,
+          # the macOS job executed in 11-21s every time but waited 5-10 minutes
+          # for a runner in 6 of them, and in 2 got none at all -- no runner
+          # name, no steps, cancelled on hitting timeout-minutes, taking the
+          # whole run red with it. Windows waited 1-3s in all 20. GitHub's own
+          # annotation on one of those two says why:
+          #
+          #   The job was not acquired by Runner of type hosted even after
+          #   multiple attempts
+          #   Due to capacity constraints, jobs targeting macOS arm64 runners
+          #   may experience longer queue times.
+          #
+          # Note "arm64". If a macOS leg is ever wanted back, that constraint is
+          # on the Apple Silicon pool, which is what macos-latest now resolves
+          # to; macos-13 is Intel and a different, less contended queue. But it
+          # would buy a green check rather than more coverage, because what a
+          # Mac organiser depends on is Safari, not Node. Safari is WebKit, and
+          # Playwright runs WebKit on Linux -- see the browser job.
+          - os: windows-latest
+            node: "22.x"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+
+      # There is deliberately no install step: the project has no runtime or
+      # build dependencies, so a bare Node has to be enough. This fails if a
+      # dependency ever sneaks into web/package.json.
+      - name: Confirm nothing needs installing
+        shell: bash
+        run: |
+          node --version
+          node -e "
+            const pkg = require('./web/package.json');
+            for (const field of ['dependencies', 'peerDependencies']) {
+              const deps = Object.keys(pkg[field] || {});
+              if (deps.length) {
+                console.error('web/package.json has ' + field + ': ' + deps.join(', '));
+                process.exit(1);
+              }
+            }
+            console.log('no runtime dependencies');
+          "
+
+      - name: Run the test suite
+        run: node web/run-tests.js
+
+      - name: Build the single file
+        run: node web/build.js
+
+      - name: Build the downloadable file
+        run: node web/release.js
+
+  browser:
+    name: Browser · the built file on file://
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22.x"
+
+      # Playwright is the one dev-only dependency, and only this job needs it.
+      - name: Install Playwright
+        run: |
+          npm install --no-save playwright@1.49.1
+          npx playwright install --with-deps chromium
+
+      - name: Drive the built file through a whole tournament
+        run: node web/run-tests.js browser
+
+      - name: Upload the built page if something failed
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: built-page
+          path: web/dist/mahjong-tournament.html
+          if-no-files-found: ignore

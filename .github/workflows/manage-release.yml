@@ -1,0 +1,172 @@
+name: manage release
+
+# Fix a version number that went out wrong.
+#
+#   retag   copy a release to a different tag, keeping its assets and notes,
+#           pointing at the same commit; optionally remove the original
+#   delete  remove a release and its tag
+#
+# Actions tab -> "manage release" -> "Run workflow".
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "What to do"
+        required: true
+        default: retag
+        type: choice
+        options: [retag, delete]
+      from_tag:
+        description: "The existing release, e.g. v1.0.0"
+        required: true
+        type: string
+      to_tag:
+        description: "New tag for retag, e.g. v0.1.0 (ignored when deleting)"
+        required: false
+        type: string
+      title:
+        description: "Title for the new release (blank keeps the old one)"
+        required: false
+        type: string
+      delete_old:
+        description: "Delete the old release and its tag afterwards"
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+
+jobs:
+  manage:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Apply
+        env:
+          GH_TOKEN: ${{ github.token }}
+          # Through the environment, not interpolated into the script, so a
+          # crafted input cannot inject shell.
+          ACTION: ${{ inputs.action }}
+          FROM_TAG: ${{ inputs.from_tag }}
+          TO_TAG: ${{ inputs.to_tag }}
+          TITLE: ${{ inputs.title }}
+          DELETE_OLD: ${{ inputs.delete_old }}
+        run: |
+          set -euo pipefail
+
+          check_tag() {
+            if ! printf '%s' "$1" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.]+)?$'; then
+              echo "::error::'$1' does not look like a version tag (expected v1.2.3)"
+              exit 1
+            fi
+          }
+
+          check_tag "$FROM_TAG"
+          if ! gh release view "$FROM_TAG" >/dev/null 2>&1; then
+            echo "::error::no release tagged $FROM_TAG"
+            exit 1
+          fi
+
+          if [ "$ACTION" = "delete" ]; then
+            gh release delete "$FROM_TAG" --yes --cleanup-tag
+            echo "deleted $FROM_TAG and its tag"
+            exit 0
+          fi
+
+          if [ -z "$TO_TAG" ]; then
+            echo "::error::retag needs a to_tag"
+            exit 1
+          fi
+
+          check_tag "$TO_TAG"
+          if [ "$FROM_TAG" = "$TO_TAG" ]; then
+            echo "::error::the two tags are the same"
+            exit 1
+          fi
+          if gh release view "$TO_TAG" >/dev/null 2>&1; then
+            echo "::error::a release tagged $TO_TAG already exists"
+            exit 1
+          fi
+
+          TARGET="$(git rev-list -n 1 "$FROM_TAG")"
+          echo "copying $FROM_TAG (at $TARGET) to $TO_TAG"
+
+          gh release view "$FROM_TAG" --json body --jq .body > old-notes.md
+          OLD_TITLE="$(gh release view "$FROM_TAG" --json name --jq .name)"
+          NEW_TITLE="${TITLE:-$OLD_TITLE}"
+
+          mkdir -p assets
+          gh release download "$FROM_TAG" --dir assets || echo "no assets to copy"
+          ls -la assets || true
+
+          # Note at the top of the notes where this came from.
+          {
+            printf 'Previously published as `%s`. The files are unchanged.\n\n---\n\n' "$FROM_TAG"
+            cat old-notes.md
+          } > new-notes.md
+
+          # The tag has to exist before the release is attached to it, because
+          # asking the releases API to create a tag at a commit off the default
+          # branch is refused.
+          #
+          # GITHUB_TOKEN often cannot create that tag either. If the commit's
+          # tree contains .github/workflows files that differ from the current
+          # ones, pushing the ref is refused with "refusing to allow a GitHub
+          # App to create or update workflow ... without `workflows`
+          # permission" -- and `workflows` is not a scope the permissions block
+          # can grant. When that happens the tag has to be pushed by a person:
+          #
+          #   git tag v0.1.0 <commit> && git push origin v0.1.0
+          #
+          # then run this workflow again; an existing tag is used as it stands.
+          TAG_PUSHED=no
+          if git rev-parse -q --verify "refs/tags/$TO_TAG" >/dev/null; then
+            EXISTING="$(git rev-list -n 1 "$TO_TAG")"
+            echo "$TO_TAG already exists, at $EXISTING -- using it"
+            if [ "$EXISTING" != "$TARGET" ]; then
+              echo "::warning::$TO_TAG points at $EXISTING, not $FROM_TAG's commit $TARGET"
+            fi
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git tag "$TO_TAG" "$TARGET"
+            if ! git push origin "refs/tags/$TO_TAG"; then
+              echo "::error::could not push $TO_TAG. If the refusal mentions \`workflows\` permission, push the tag by hand: git tag $TO_TAG $TARGET && git push origin $TO_TAG"
+              exit 1
+            fi
+            TAG_PUSHED=yes
+            echo "tagged $TO_TAG at $TARGET"
+          fi
+
+          # Through the API rather than `gh release create`, so a refusal
+          # prints the response body instead of just a status line.
+          jq -n --arg t "$TO_TAG" --arg n "$NEW_TITLE" --rawfile b new-notes.md \
+            '{tag_name:$t, name:$n, body:$b}' > payload.json
+          if ! gh api -X POST "repos/$GITHUB_REPOSITORY/releases" \
+               --input payload.json > created.json; then
+            echo "::error::could not create the release for $TO_TAG"
+            # Only undo a tag this run created.
+            if [ "$TAG_PUSHED" = "yes" ]; then
+              git push --delete origin "refs/tags/$TO_TAG" || true
+            fi
+            exit 1
+          fi
+
+          if [ -n "$(ls -A assets 2>/dev/null)" ]; then
+            gh release upload "$TO_TAG" assets/*
+          fi
+          echo "created: $(jq -r .html_url created.json)"
+
+          if [ "$DELETE_OLD" = "true" ]; then
+            gh release delete "$FROM_TAG" --yes --cleanup-tag
+            echo "deleted $FROM_TAG and its tag"
+          else
+            echo "$FROM_TAG left in place"
+          fi

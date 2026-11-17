@@ -1,0 +1,13 @@
+{
+  "name": "mahjong-tournament-system",
+  "version": "0.3.1",
+  "private": true,
+  "description": "Offline tournament software for mahjong, in one HTML file.",
+  "license": "MIT",
+  "scripts": {
+    "build": "node build.js",
+    "release": "node release.js",
+    "test": "node run-tests.js",
+    "test:browser": "node run-tests.js browser"
+  }
+}

@@ -13,10 +13,17 @@ uses. The printed sheets match the ARA's Tournament-in-a-Box paperwork.
 
 ## Getting started
 
-[Download the latest release.](https://github.com/MilkJugg24/Mahjong-Tournament-System/releases/latest)
+The program is one file in this repository:
+[Mahjong-Tournament-System.html](Mahjong-Tournament-System.html), at the top of
+the file list above.
 
-Double-click it and it opens. There is nothing to install and no account to
-make. It works in Chrome, Edge, Safari and Firefox, on Windows, Mac or Linux.
+Open it here on GitHub and press the download button over the file — the ⤓
+icon. GitHub displays HTML as text, so clicking through to the page itself
+shows you a wall of source code; the download button is the one that saves it.
+
+Double-click the saved file and it opens. There is nothing to install, no
+account to make and no version to choose. It works in Chrome, Edge, Safari and
+Firefox, on Windows, Mac or Linux.
 
 ### Pick a backup folder before your event
 
@@ -138,15 +145,26 @@ browsers refuse storage. Open the file in a normal window.
 
 ## Versions
 
-Below 1.0 until the system has run a real tournament from start to finish. Until
-then only the newest release is published, so the download link above is always
-the right one and there is no older build to pick by mistake.
+Below 1.0 until the system has run a real tournament from start to finish.
+
+There is no releases page, and no list of builds to pick from. The file in this
+repository is the program, and it is rebuilt from the sources on every change,
+so the copy here is always the current one. To update, download it again.
+
+Nothing carries over from the old file to the new one, and nothing needs to:
+your tournaments live in the browser and in your backup folder, not in the
+file.
 
 ## For developers
 
 - [docs/CODE_MAP.md](docs/CODE_MAP.md) says where everything is, arranged by the
   question you arrived with. Start there to check how a score is worked out.
 - [docs/TECHNICAL.md](docs/TECHNICAL.md) covers how it is built, and the tests.
+
+The page at the root is generated: the sources are in `web/src`, and
+`node web/build.js` inlines them into it. A test rebuilds the page and compares
+it byte for byte, so a change to the sources that is not rebuilt fails the
+suite.
 
 ## Credits
 

@@ -4,16 +4,6 @@ data/
 *.db-wal
 *.db-shm
 
-# Built release artefacts
-dist/
-
-# Python
-__pycache__/
-*.py[cod]
-*.egg-info/
-.venv/
-venv/
-
 # Editors and OS
 .DS_Store
 .idea/

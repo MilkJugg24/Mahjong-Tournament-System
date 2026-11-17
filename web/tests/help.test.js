@@ -122,6 +122,6 @@ test('the bundler inlines the new modules too', () => {
   const build = read('../build.js');
   for (const name of ['help.js', 'tutorial.js']) {
     assert.ok(build.includes(`'${name}'`),
-      `${name} is missing from build.js SOURCES, so it would be dropped from the release`);
+      `${name} is missing from build.js SOURCES, so it would be dropped from the built page`);
   }
 });

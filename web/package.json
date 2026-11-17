@@ -6,7 +6,6 @@
   "license": "MIT",
   "scripts": {
     "build": "node build.js",
-    "release": "node release.js",
     "test": "node run-tests.js",
     "test:browser": "node run-tests.js browser"
   }

@@ -7,7 +7,19 @@
  * references at all. That is also what makes it work offline: there is nothing
  * left to load.
  *
- *   node web/build.js            -> web/dist/mahjong-tournament.html
+ * The output is committed at the root of the repository, because that is how
+ * people get the program: there are no releases, so the file in the repository
+ * is the download. Two things follow from that, and both matter.
+ *
+ * The build must be deterministic. The same sources must produce the same
+ * bytes, or every build would show up as a diff and nobody could tell a real
+ * change from noise. That is why there is no build timestamp in the banner.
+ *
+ * And the committed file must be current. web/tests/built-file.test.js rebuilds
+ * and compares byte for byte, so a change to web/src that is not rebuilt fails
+ * the suite rather than shipping a page that does not match its own sources.
+ *
+ *   node web/build.js            -> Mahjong-Tournament-System.html (repo root)
  *   node web/build.js --out DIR
  */
 'use strict';
@@ -16,8 +28,8 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const SRC = path.join(__dirname, 'src');
-const DEFAULT_OUT = path.join(__dirname, 'dist');
-const OUTPUT_NAME = 'mahjong-tournament.html';
+const DEFAULT_OUT = path.join(__dirname, '..');
+const OUTPUT_NAME = 'Mahjong-Tournament-System.html';
 
 // Order matters: each file leans on the ones before it via window.RT.
 const SCRIPTS = [
@@ -37,7 +49,7 @@ const safeForInline = (js) => js.replace(/<\/script/gi, '<\\/script');
 
 /* ------------------------------------------------- making it navigable ---
  *
- * The built file is one 240 KB page, which is a lot to scroll through
+ * The built file is one 300 KB page, which is a lot to scroll through
  * looking for the bit that works out who won. So each inlined module gets a
  * labelled banner carrying a searchable marker, and the comment at the top of
  * the file lists them with the line each one starts on.
@@ -94,7 +106,7 @@ function contentsBlock(purposes) {
   return [
     '  WHAT IS IN HERE',
     '',
-    '    This page is the whole program: ten source files inlined in the order',
+    `    This page is the whole program: ${SCRIPTS.length} source files inlined in the order`,
     '    below, each behind a banner you can search for. The guide to the code',
     '    is docs/CODE_MAP.md in the repository.',
     '',
@@ -148,10 +160,14 @@ function build({ out = DEFAULT_OUT } = {}) {
   for (const name of SCRIPTS) {
     purposes[name] = purposeOf(fs.readFileSync(path.join(SRC, name), 'utf8'));
   }
+  // No build date: this file is committed, so a timestamp would make every
+  // build a diff. The commit that changed it is the date.
   const banner = `<!--\n  Mahjong Tournament System ${version()}\n`
-    + `  Built ${new Date().toISOString()}\n`
     + '  One self-contained file: open it in a browser, no install, works offline.\n'
     + '  https://github.com/MilkJugg24/Mahjong-Tournament-System\n\n'
+    + '  Generated from web/src by web/build.js. Editing this file by hand is\n'
+    + '  wasted work: the next build overwrites it, and the test suite refuses a\n'
+    + '  copy that does not match the sources.\n\n'
     + `${contentsBlock(purposes)}\n-->\n`;
   result = result.replace(/^<!doctype html>/i, () => `<!doctype html>\n${banner}`);
 

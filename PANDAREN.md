@@ -33,6 +33,21 @@ confirm. Do not sit watching a green run re-prove what you just proved, unless
 the change is one CI can catch and local tests cannot: the browser test and the
 cross-platform legs.
 
+## The built page is committed, and must not go stale
+
+`Mahjong-Tournament-System.html` at the root is what people download — there
+are no releases, so the repository is the distribution.
+
+Any change under `web/src` means `node web/build.js` in the same commit.
+`web/tests/built-file.test.js` compares the committed page with a fresh build
+byte for byte and fails if they differ, and CI asks git the same question, so
+this is caught rather than shipped. Do not edit the page by hand.
+
+Keep the build deterministic. Nothing time-dependent, random or
+machine-dependent goes into the output: the moment two builds of the same
+sources differ, that test has to go, and nothing is left watching the file
+people download.
+
 ## Note on skipping CI for docs
 
 Do not add `paths-ignore` for markdown. `web/tests/docs.test.js` checks that the

@@ -70,12 +70,10 @@ test('every function CODE_MAP.md names really exists', () => {
 
 /* Checked against the files git tracks, not against the working directory.
  *
- * The filesystem is the wrong question to ask. Docs legitimately name build
- * outputs -- TECHNICAL.md says `node web/build.js` writes
- * web/dist/mahjong-tournament.html -- and whether that happens to be on disk
- * depends only on whether anyone has run a build lately. Asking the filesystem
- * made this test pass locally, where a build was lying around, and fail in CI
- * on a fresh checkout. Tracked files are the same everywhere.
+ * The filesystem is the wrong question to ask: a stray build output or an
+ * untracked scratch file would make a doc's pointer look real locally and
+ * break on a fresh checkout. Tracked files are the same everywhere. The built
+ * page is tracked now, so it needs no exception.
  */
 let TRACKED = null;
 function trackedFiles() {
@@ -90,9 +88,8 @@ function trackedFiles() {
   return TRACKED;
 }
 
-/** A path a doc may name: tracked in the repo, or a known build output. */
+/** A path a doc may name: anything the repository actually tracks. */
 function namesSomethingReal(rel) {
-  if (/(?:^|\/)dist\//.test(rel)) return true; // build output, not a source file
   return trackedFiles().has(rel);
 }
 
@@ -136,11 +133,18 @@ test('source headers do not point at files that were deleted', (t) => {
 
 /* ------------------------------------------------- the built file's index */
 
-test('the built page carries a navigable contents index', () => {
+/* Into a temporary directory: the committed page at the root is checked by
+ * built-file.test.js, and a test that rewrote it would hide what that one
+ * looks for. */
+function buildToTemp() {
   const { build, OUTPUT_NAME } = require('../build.js');
-  const out = path.join(__dirname, '..', 'dist');
+  const out = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'mts-docs-'));
   build({ out });
-  const html = read(path.join(out, OUTPUT_NAME));
+  return path.join(out, OUTPUT_NAME);
+}
+
+test('the built page carries a navigable contents index', () => {
+  const html = read(buildToTemp());
   const lines = html.split('\n');
 
   const rows = lines.filter((l) => /RT:FILE \S+\s+line\s+\d+/.test(l));
@@ -159,10 +163,7 @@ test('the built page carries a navigable contents index', () => {
 
 test('the arithmetic is flagged in the built page', () => {
   // Builds its own copy rather than relying on the test above having run.
-  const { build, OUTPUT_NAME } = require('../build.js');
-  const out = path.join(__dirname, '..', 'dist');
-  build({ out });
-  const html = read(path.join(out, OUTPUT_NAME));
+  const html = read(buildToTemp());
   const flagged = (html.match(/RT:FILE (\S+)[^\n]*<-- the arithmetic/g) || [])
     .map((l) => l.match(/RT:FILE (\S+)/)[1]);
   assert.deepEqual(flagged.sort(), ['rational.js', 'scoring.js'],

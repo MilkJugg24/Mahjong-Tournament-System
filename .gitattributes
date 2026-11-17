@@ -1,0 +1,13 @@
+# Line endings are not negotiable here.
+#
+# Mahjong-Tournament-System.html at the root is a committed build output, and
+# web/tests/built-file.test.js compares it byte for byte against a fresh build
+# of web/src. If git rewrote line endings on checkout, that comparison would
+# fail on Windows and pass on Linux for no reason anyone could see -- and the
+# sources are inlined into the page, so converting them converts it too.
+#
+# So: LF in the repository and LF in the working tree, on every platform.
+* text=auto eol=lf
+
+# And the built page is never touched at all.
+Mahjong-Tournament-System.html -text

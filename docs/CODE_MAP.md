@@ -14,7 +14,7 @@ event, see the [organiser's guide](ORGANIZER_GUIDE.md).
 of the file, followed by a short list of the five functions that do the work.
 Everything else in the project is bookkeeping around it.
 
-The downloaded `riichi-tournament.html` is the same code, inlined. Its opening
+The downloaded `Mahjong-Tournament-System.html` is the same code, inlined. Its opening
 comment is a contents list giving the line each source file starts on, and each
 one sits behind a banner you can search for:
 
@@ -83,7 +83,7 @@ RT:FILE scoring.js
 | Help topics and the "?" text | `help.js` — plain data, no DOM |
 | The guided tutorial | `tutorial.js` — the steps and the engine |
 | How the one file is assembled | `build.js` |
-| What a release contains | `release.js` — one HTML file, nothing else |
+| What people download | `Mahjong-Tournament-System.html` at the root — the built page, committed |
 
 ---
 

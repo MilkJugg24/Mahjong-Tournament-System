@@ -228,7 +228,7 @@ disk is full or the folder is not writable.
 
 ### If the laptop dies
 
-1. Open `riichi-tournament.html` on another computer.
+1. Open `Mahjong-Tournament-System.html` on another computer.
 2. Go to **Events** and use **Load a backup**.
 3. Pick `restore/tournament.json` from your backup folder.
 

@@ -28,7 +28,8 @@ jobs:
         include:
           # Windows is the cross-platform check that earns its place: it is the
           # only runner where path separators and line endings differ, which is
-          # what build.js and release.js actually touch.
+          # what build.js actually touches -- and the committed page is
+          # compared byte for byte, so a line-ending slip shows up here.
           #
           # There is deliberately no macOS leg, for two separate reasons.
           #
@@ -82,14 +83,22 @@ jobs:
             console.log('no runtime dependencies');
           "
 
+      # Includes built-file.test.js, which rebuilds the page and compares it
+      # byte for byte with the committed Mahjong-Tournament-System.html.
       - name: Run the test suite
         run: node web/run-tests.js
 
-      - name: Build the single file
-        run: node web/build.js
-
-      - name: Build the downloadable file
-        run: node web/release.js
+      # The suite builds through the module; this exercises the command line
+      # people actually type, and then proves the committed page is current
+      # from git's point of view rather than the test's.
+      - name: Build the page and check it is already committed
+        shell: bash
+        run: |
+          node web/build.js
+          if ! git diff --exit-code -- Mahjong-Tournament-System.html; then
+            echo "::error::Mahjong-Tournament-System.html is stale. Run 'node web/build.js' and commit it."
+            exit 1
+          fi
 
   browser:
     name: Browser · the built file on file://
@@ -116,5 +125,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: built-page
-          path: web/dist/mahjong-tournament.html
+          path: Mahjong-Tournament-System.html
           if-no-files-found: ignore

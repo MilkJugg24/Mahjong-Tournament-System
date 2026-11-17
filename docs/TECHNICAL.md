@@ -29,18 +29,21 @@ web/
 │   ├── ui.js         the interface
 │   └── index.html, style.css
 ├── tests/            node:test, plus a browser run against the built file
-├── build.js          inlines everything into one HTML file
-└── release.js        builds what people download
+└── build.js          inlines everything into one HTML file
 ```
+
+The build writes `Mahjong-Tournament-System.html` to the root of the
+repository, and that file is committed. It is what people download, so it has
+to be there; see "How people get it" below for what that costs and how the
+cost is paid.
 
 No runtime dependencies and no build dependencies. Playwright is needed only for
 the browser test, and only in CI.
 
 ```bash
-node web/build.js              # -> web/dist/riichi-tournament.html
+node web/build.js              # -> Mahjong-Tournament-System.html, at the root
 node web/run-tests.js          # the lot, including the browser run
-node web/run-tests.js --not browser   # 183, no Playwright needed
-node web/release.js            # -> dist/
+node web/run-tests.js --not browser   # no Playwright needed
 ```
 
 Use `run-tests.js` rather than `node --test "web/tests/*.test.js"`: Node 20 does
@@ -323,43 +326,51 @@ entering results from their own phones, which needs a server.
 ## Versioning
 
 Below 1.0 until the system has run a real tournament end to end.
-`web/package.json` is the single source of truth, and `release.js` refuses to
-build an artefact whose version disagrees with it.
+`web/package.json` is the single source of truth for the number, and the build
+writes it into the page so About reports what you are actually running. Opened
+straight from `web/src`, with no build, it says `dev`.
 
-**Only the newest release is published.** Below 1.0 the older ones are deleted
-rather than left on the releases page, so an organiser downloading the software
-cannot pick a stale build by mistake, and there is only ever one answer to
-"which file do I want". Use the `manage release` workflow, `action: delete`, to
-remove the previous one after the new one is up.
+## How people get it
 
-Nothing is lost by that: a release is built from a commit on `main`, the commit
-stays in the history, and `release.js` reproduces the artefact byte for byte
-from it. The tag goes with the release; the code does not.
+They download `Mahjong-Tournament-System.html` from the root of the repository.
+There are no releases, no tags and no artefacts: `main` is the distribution.
 
-## Releasing
+That is the simplest thing for an organiser, who wants one file and no choice
+to make, and it costs something to maintain. A committed build output can
+disagree with the sources that produced it, and a page that is quietly a week
+old is a worse failure than a missing one — nothing about it looks wrong.
 
-```bash
-# bump the version in web/package.json first
-git tag v0.2.1 && git push origin v0.2.1
-```
+Three things keep it honest.
 
-Or the **Run workflow** button on the `release` workflow. Either way CI runs the
-tests, builds the page, opens it in a real browser and drives a tournament
-through it, and only then publishes. `release.js` refuses to build if the version
-disagrees with `web/package.json`, so the program can never report a different
-version from the file people downloaded.
+The build is deterministic: `build.js` puts no timestamp in the page, so
+the same sources always produce the same bytes. Without that, every build would
+be a diff and none of the rest would be possible.
 
-**One artefact.** A release is `riichi-tournament.html` and nothing else, and the
-workflow fails if `dist/` ends up holding more than one file. There used to be a
-zip as well, carrying the same page plus the guides; the guides are in the
-program now, under Help, so the zip only offered a second download that was
-worse than the first — a folder to unpack instead of a file to open. Dropping it
-also took about 160 lines of hand-written zip writer out of `release.js`.
+A test rebuilds and compares. `web/tests/built-file.test.js` builds into a
+temporary directory and checks the committed file byte for byte. A source
+change that was not rebuilt fails the suite in about seven seconds, with the
+command to fix it. The build happens somewhere else on purpose: a test that
+rebuilt the page in place would repair the very thing it was checking, and the
+check would be worth nothing.
+
+CI asks git the same question. The `tests` workflow runs `node
+web/build.js` and then `git diff --exit-code` on the page, which is the same
+check from outside the test suite, through the command line a person actually
+types.
+
+Line endings are the one way this can break for an unobvious reason, which is
+what `.gitattributes` is for: everything is LF in the repository and LF in the
+working tree, and the built page is never converted at all. Otherwise the
+comparison would fail on Windows and pass on Linux.
+
+### If a release is ever wanted
+
+Attach the file to a tag by hand on the releases page. The build is
+reproducible from any commit, so nothing about this arrangement makes that
+harder later.
 
 ### The workflows
 
 | | |
 |---|---|
-| `tests.yml` | every push and pull request: the suite on Node 20/24 on Linux and Node 22 on Windows, plus the browser run |
-| `release.yml` | publishes a release, from a `v*` tag or the Run workflow button |
-| `manage-release.yml` | renumbers or removes a published release. Read its header before using it: the Actions token cannot create a tag at a commit whose workflow files differ from the current ones, so some renumbering needs a tag pushed by hand first |
+| `tests.yml` | every push and pull request: the suite on Node 20/24 on Linux and Node 22 on Windows, plus the browser run, plus the check that the committed page is current |

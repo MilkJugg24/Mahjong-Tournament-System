@@ -12,9 +12,10 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 
-const { build } = require('../build.js');
+const { build, OUTPUT_NAME } = require('../build.js');
 
 /* Which browser engine to drive.
  *
@@ -54,8 +55,15 @@ const HAS_FS_ACCESS = ENGINE === 'chromium';
 const chromium = engine;
 
 const SKIP = playwright ? false : 'playwright is not installed';
-const OUT = path.join(__dirname, '..', 'dist');
-const PAGE = () => 'file://' + path.join(OUT, 'mahjong-tournament.html');
+
+/* Built into a temporary directory rather than over the committed page.
+ *
+ * Mahjong-Tournament-System.html at the root of the repository is what people
+ * download, and web/tests/built-file.test.js checks it is a current build. If
+ * this file rebuilt it in place, that check would be meaningless: whichever
+ * test ran first would quietly repair what the other was meant to catch. */
+const OUT = fs.mkdtempSync(path.join(os.tmpdir(), 'mts-browser-'));
+const PAGE = () => 'file://' + path.join(OUT, OUTPUT_NAME);
 
 const ROSTER = [
   ['Player 01', 'Club A'], ['Player 02', 'Club B'],
@@ -116,7 +124,7 @@ async function enterTable(page, tableNumber, scores) {
 
 test('the built file runs a whole tournament from file://', { skip: SKIP }, async (t) => {
   build({ out: OUT });
-  assert.ok(fs.existsSync(path.join(OUT, 'mahjong-tournament.html')));
+  assert.ok(fs.existsSync(path.join(OUT, OUTPUT_NAME)));
 
   const browser = await chromium.launch();
   const { context, page, errors, network } = await openApp(browser);
@@ -339,7 +347,7 @@ test('a tournament can be restored from a backup file', { skip: SKIP }, async ()
 /* ---------------------------------------------- tutorial, help, bubbles */
 
 test('the tutorial runs a whole demo event in the browser', { skip: SKIP }, async (t) => {
-  build({ outDir: OUT });
+  build({ out: OUT });
   const browser = await chromium.launch();
   const { context, page, errors, network } = await openApp(browser);
   try {
@@ -420,7 +428,7 @@ test('the tutorial runs a whole demo event in the browser', { skip: SKIP }, asyn
 });
 
 test('the help page and the "?" bubbles work', { skip: SKIP }, async (t) => {
-  build({ outDir: OUT });
+  build({ out: OUT });
   const browser = await chromium.launch();
   const { context, page, errors, network } = await openApp(browser);
   try {
@@ -486,7 +494,7 @@ test('the help page and the "?" bubbles work', { skip: SKIP }, async (t) => {
 /* ------------------------------------------------ rulesets in the browser */
 
 test('a ruleset is chosen on the rules page, not when creating', { skip: SKIP }, async (t) => {
-  build({ outDir: OUT });
+  build({ out: OUT });
   const browser = await chromium.launch();
   const { context, page, errors, network } = await openApp(browser);
   try {
@@ -541,7 +549,7 @@ test('a ruleset is chosen on the rules page, not when creating', { skip: SKIP },
 });
 
 test('an MCR event runs on table points', { skip: SKIP }, async (t) => {
-  build({ outDir: OUT });
+  build({ out: OUT });
   const browser = await chromium.launch();
   const { context, page, errors, network } = await openApp(browser);
   try {
@@ -631,7 +639,7 @@ test('an MCR event runs on table points', { skip: SKIP }, async (t) => {
 /* ------------------------------------------------------ settings panel */
 
 test('the settings panel opens, switches tabs and sets the theme', { skip: SKIP }, async (t) => {
-  build({ outDir: OUT });
+  build({ out: OUT });
   const browser = await chromium.launch();
   const { context, page, errors, network } = await openApp(browser);
   try {
@@ -696,7 +704,7 @@ test('the settings panel opens, switches tabs and sets the theme', { skip: SKIP 
 
 test('Discord posting is set up, used, and never fires for the demo',
   { skip: SKIP }, async (t) => {
-    build({ outDir: OUT });
+    build({ out: OUT });
     const browser = await chromium.launch();
     const { context, page, errors } = await openApp(browser, { track: false });
     const posts = [];

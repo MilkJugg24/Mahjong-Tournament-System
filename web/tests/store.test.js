@@ -167,6 +167,50 @@ test('reseating produces a different draw', () => {
   assert.equal(store.listRounds().length, 1);
 });
 
+// The button in the UI passes no seed, which is the path that was broken: the
+// derived seed depends only on the round number and the field size, so a redraw
+// reproduced the draw it was meant to replace.
+test('reseating with no seed produces a different draw', () => {
+  const store = newStore();
+  addPlayers(store, 12);
+  const first = store.generateRound();
+  const seen = [JSON.stringify(first.tables.map((t) => t.seats.map((s) => s.playerId)))];
+
+  let round = first;
+  for (let i = 0; i < 3; i++) {
+    round = store.reseatRound(round.id);
+    const draw = JSON.stringify(round.tables.map((t) => t.seats.map((s) => s.playerId)));
+    assert.ok(!seen.includes(draw), `redraw ${i + 1} repeated an earlier draw`);
+    seen.push(draw);
+  }
+  assert.equal(store.listRounds().length, 1);
+});
+
+test('reseating a later round with no seed also redraws', () => {
+  const store = newStore();
+  addPlayers(store, 16);
+  const first = store.generateRound();
+  playRound(store, first.id);
+  store.closeRound(first.id);
+
+  const second = store.generateRound();
+  const before = second.tables.map((t) => t.seats.map((s) => s.playerId));
+  const again = store.reseatRound(second.id);
+  assert.notDeepEqual(before, again.tables.map((t) => t.seats.map((s) => s.playerId)));
+  assert.equal(again.number, second.number);
+  assert.equal(store.listRounds().length, 2);
+});
+
+test('a redraw records the seed it used', () => {
+  const store = newStore();
+  addPlayers(store, 8);
+  const first = store.generateRound();
+  const again = store.reseatRound(first.id);
+  assert.notEqual(again.seed, first.seed);
+  const event = store.doc.events.filter((e) => e.kind === 'round_reseated').pop();
+  assert.equal(event.payload.seed, again.seed);
+});
+
 /* --------------------------------------------------------- score entry */
 
 function seededTable(store) {

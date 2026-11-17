@@ -573,10 +573,23 @@ class TournamentStore {
         + 'redrawn. Clear the entered tables first.');
     }
     const { number, phase, label } = detail;
+    // Without a seed, generateRound derives one from the round number and the
+    // field size -- both of which a redraw leaves untouched -- so it would hand
+    // back the identical seating. Step past the seed this round already used
+    // instead: every press is a new draw, and the document still records the
+    // exact seed behind it. (mulberry32 decorrelates adjacent seeds, so +1 is a
+    // genuinely different shuffle, not a near-miss of the last one.)
+    const used = Number(detail.seed);
+    const base = Number.isFinite(used) ? used : number * 7919 + 1;
+    const nextSeed = (seed === null || seed === undefined || seed === '')
+      ? base + 1
+      : Number(seed);
     t.rounds = t.rounds.filter((r) => r.id !== Number(roundId));
     if (!t.rounds.length && t.status === 'running') t.status = 'setup';
-    const fresh = this.generateRound({ phase, label, seed });
-    this.changed('round_reseated', { roundNumber: number, roundId: fresh.id });
+    const fresh = this.generateRound({ phase, label, seed: nextSeed });
+    this.changed('round_reseated', {
+      roundNumber: number, roundId: fresh.id, seed: nextSeed,
+    });
     return fresh;
   }
 

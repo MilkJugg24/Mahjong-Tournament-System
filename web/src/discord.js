@@ -42,6 +42,14 @@ const LIMITS = {
 };
 
 const COLOUR = 0x1f6f43;
+/* A test tournament posts like any other — trying the feature out is the point
+ * of test mode. It is coloured and labelled differently so that made-up names
+ * landing in a real channel are obviously made up. */
+const COLOUR_TEST = 0x9a6b1f;
+
+const isDemo = (t) => Boolean(t && t.config && t.config.demo);
+const colourFor = (t) => (isDemo(t) ? COLOUR_TEST : COLOUR);
+const footerFor = (t, text) => (isDemo(t) ? `Test tournament · ${text}` : text);
 
 /** A webhook URL, split into the parts the API needs. Throws if it is not one. */
 function parseWebhook(url) {
@@ -107,9 +115,9 @@ function pairingsMessage(tournament, round, { note = '' } = {}) {
       title: fit(`${tournament.name} — ${round.label || `Round ${round.number}`}`,
         LIMITS.embedTitle),
       description: note ? fit(note, LIMITS.embedDescription) : undefined,
-      color: COLOUR,
+      color: colourFor(tournament),
       fields,
-      footer: { text: `Seating · updated ${stamp()}` },
+      footer: { text: footerFor(tournament, `Seating · updated ${stamp()}`) },
     }],
   };
 }
@@ -154,10 +162,10 @@ function standingsMessage(tournament, rows, { scope = 'overall', precision = 1 }
       description: fit(
         body + (dropped > 0 ? `\n${dropped} more not shown.` : ''),
         LIMITS.embedDescription),
-      color: COLOUR,
+      color: colourFor(tournament),
       footer: {
-        text: `${rows.length} player(s)${rows.some((r) => r.needsCoinToss)
-          ? ' · = marks a tie to settle' : ''} · updated ${stamp()}`,
+        text: footerFor(tournament, `${rows.length} player(s)${rows.some((r) => r.needsCoinToss)
+          ? ' · = marks a tie to settle' : ''} · updated ${stamp()}`),
       },
     }],
   };
@@ -225,7 +233,8 @@ class DiscordPoster {
 }
 
 const API = {
-  LIMITS, parseWebhook, pairingsMessage, standingsMessage, DiscordPoster, fit,
+  LIMITS, COLOUR, COLOUR_TEST, parseWebhook, pairingsMessage, standingsMessage,
+  DiscordPoster, fit,
 };
 
 if (typeof module !== 'undefined' && module.exports) module.exports = API;

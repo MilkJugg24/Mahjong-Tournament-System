@@ -168,7 +168,8 @@ function render() {
   if (isTestEvent()) {
     banner.className = 'on';
     banner.innerHTML = `<b>Test tournament.</b> Made-up data for trying things out.
-      Nothing is written to your backup folder and nothing is posted to Discord.`;
+      Nothing is written to your backup folder. Discord posts do go out, marked
+      as a test, so the feature can be rehearsed.`;
   } else {
     banner.className = '';
     banner.innerHTML = '';
@@ -1392,8 +1393,9 @@ function renderBackups() {
     <p class="small muted">Keeps one pairings post and one standings post in a
       channel, editing them as the day goes on rather than adding a new message
       each time.</p>
-    ${isDemo ? `<div class="issue warning">This is the tutorial's demo event, so
-      it will not post anywhere.</div>` : ''}
+    ${isDemo ? `<div class="issue warning">This is a test tournament. Posts
+      <b>do</b> go to the channel, coloured and labelled as a test — point the
+      webhook at a channel where made-up players are welcome.</div>` : ''}
     <div class="grid two">
       <label class="field" style="grid-column:1/-1"><span>Webhook URL</span>
         <input type="password" id="dcUrl" autocomplete="off" spellcheck="false"
@@ -1410,9 +1412,8 @@ function renderBackups() {
       <button class="primary" id="dcSave">Save</button>
       <button class="ghost" id="dcPost"${discordReady() ? '' : ' disabled'}>Post now</button>
       <button class="ghost" id="dcClear"${discordReady() ? '' : ' disabled'}>Forget it</button>
-      <span class="small muted">${esc(discordState.last || (discordReady()
-    ? 'Saved. Posts update after each draw and each round closes.'
-    : 'Not set up.'))}</span>
+      <span class="small muted">${esc(discordState.last || discordBlockedReason()
+    || 'Saved. Posts update after each draw and each round closes.')}</span>
     </div>
   </div>`;
 
@@ -2029,10 +2030,25 @@ function discordReady() {
   return Boolean(discordState.config && discordState.config.url);
 }
 
-/** The demo event must never reach a real channel. */
-function discordAllowed() {
+/**
+ * Why posting is off, or '' when it is on.
+ *
+ * A reason rather than a boolean, because the commonest way to meet this is
+ * to set the webhook up on a test tournament — which is the sensible thing to
+ * try first, and used to fail by doing nothing at all.
+ */
+function discordBlockedReason() {
   const t = state.store.doc;
-  return discordReady() && t && !(t.config && t.config.demo);
+  if (!t) return 'Open a tournament before posting.';
+  if (!discordReady()) return 'Paste the webhook URL and press Save first.';
+  return '';
+}
+
+/* A test tournament posts like any other: learning the feature on made-up
+ * players is exactly what test mode is for. The post is coloured and labelled
+ * as a test so it cannot be mistaken for a real draw. */
+function discordAllowed() {
+  return discordBlockedReason() === '';
 }
 
 async function saveDiscordConfig(config) {
@@ -2041,7 +2057,16 @@ async function saveDiscordConfig(config) {
 }
 
 async function postToDiscord(which, { quiet = false } = {}) {
-  if (!discordAllowed()) return;
+  // Say why rather than doing nothing: a dead button is a bug report.
+  const blocked = discordBlockedReason();
+  if (blocked) {
+    if (!quiet) {
+      discordState.last = blocked;
+      toast(blocked, 'warn', 9000);
+      if (state.view === 'backups') render();
+    }
+    return;
+  }
   const cfg = discordState.config;
   const t = state.store.doc;
   let poster;
@@ -2068,7 +2093,10 @@ async function postToDiscord(which, { quiet = false } = {}) {
           precision: state.store.rules.scorePrecision,
         });
       }
-      const key = `${job}MessageId`;
+      // Test posts keep their own message ids. The ids live with the webhook,
+      // not with the tournament, so without this a rehearsal would edit over
+      // the live pairings post of a real event running on the same machine.
+      const key = isTestEvent() ? `demo_${job}MessageId` : `${job}MessageId`;
       const id = await poster.send(payload, cfg[key] || null);
       if (id && id !== cfg[key]) await saveDiscordConfig({ ...cfg, [key]: id });
       discordState.last = `${job} posted ${when(new Date().toISOString().replace(/\.\d+Z$/, 'Z'))}`;

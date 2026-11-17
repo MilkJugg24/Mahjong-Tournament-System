@@ -22,10 +22,10 @@
     RT:FILE persist.js   line   4176  The working copy: IndexedDB.
     RT:FILE printing.js  line   4413  Printable pages.
     RT:FILE discord.js   line   4723  Posting pairings and standings to a Discord channel.
-    RT:FILE help.js      line   4965  Help content: the help page, and the text behind every "?" bubble.
-    RT:FILE testdata.js  line   5246  Made-up rosters and made-up scores, for trying the program out.
-    RT:FILE tutorial.js  line   5371  The guided tutorial: a demo tournament that plays itself while ...
-    RT:FILE ui.js        line   5837  The browser interface.
+    RT:FILE help.js      line   4974  Help content: the help page, and the text behind every "?" bubble.
+    RT:FILE testdata.js  line   5256  Made-up rosters and made-up scores, for trying the program out.
+    RT:FILE tutorial.js  line   5382  The guided tutorial: a demo tournament that plays itself while ...
+    RT:FILE ui.js        line   5848  The browser interface.
 
     To check how a score was worked out, read scoring.js: the formula is
     written out at the top of it, and rational.js is the exact arithmetic
@@ -4766,6 +4766,14 @@ const LIMITS = {
 };
 
 const COLOUR = 0x1f6f43;
+/* A test tournament posts like any other — trying the feature out is the point
+ * of test mode. It is coloured and labelled differently so that made-up names
+ * landing in a real channel are obviously made up. */
+const COLOUR_TEST = 0x9a6b1f;
+
+const isDemo = (t) => Boolean(t && t.config && t.config.demo);
+const colourFor = (t) => (isDemo(t) ? COLOUR_TEST : COLOUR);
+const footerFor = (t, text) => (isDemo(t) ? `Test tournament · ${text}` : text);
 
 /** A webhook URL, split into the parts the API needs. Throws if it is not one. */
 function parseWebhook(url) {
@@ -4831,9 +4839,9 @@ function pairingsMessage(tournament, round, { note = '' } = {}) {
       title: fit(`${tournament.name} — ${round.label || `Round ${round.number}`}`,
         LIMITS.embedTitle),
       description: note ? fit(note, LIMITS.embedDescription) : undefined,
-      color: COLOUR,
+      color: colourFor(tournament),
       fields,
-      footer: { text: `Seating · updated ${stamp()}` },
+      footer: { text: footerFor(tournament, `Seating · updated ${stamp()}`) },
     }],
   };
 }
@@ -4878,10 +4886,10 @@ function standingsMessage(tournament, rows, { scope = 'overall', precision = 1 }
       description: fit(
         body + (dropped > 0 ? `\n${dropped} more not shown.` : ''),
         LIMITS.embedDescription),
-      color: COLOUR,
+      color: colourFor(tournament),
       footer: {
-        text: `${rows.length} player(s)${rows.some((r) => r.needsCoinToss)
-          ? ' · = marks a tie to settle' : ''} · updated ${stamp()}`,
+        text: footerFor(tournament, `${rows.length} player(s)${rows.some((r) => r.needsCoinToss)
+          ? ' · = marks a tie to settle' : ''} · updated ${stamp()}`),
       },
     }],
   };
@@ -4949,7 +4957,8 @@ class DiscordPoster {
 }
 
 const API = {
-  LIMITS, parseWebhook, pairingsMessage, standingsMessage, DiscordPoster, fit,
+  LIMITS, COLOUR, COLOUR_TEST, parseWebhook, pairingsMessage, standingsMessage,
+  DiscordPoster, fit,
 };
 
 if (typeof module !== 'undefined' && module.exports) module.exports = API;
@@ -5014,9 +5023,10 @@ const FIELD_HELP = {
     + 'printed sheet and the CSV log both show it.',
 
   'test-mode': 'Creates a practice tournament instead of a real one. You get '
-    + 'buttons to generate made-up players and fill in made-up scores, every page '
-    + 'says it is a test, and nothing leaves this computer: no CSVs in your backup '
-    + 'folder, nothing posted to Discord. Use it to try the program, or to '
+    + 'buttons to generate made-up players and fill in made-up scores, and every '
+    + 'page says it is a test. No CSVs are written to your backup folder. Discord '
+    + 'posting does work, so the feature can be rehearsed; those posts are '
+    + 'coloured and labelled as a test. Use it to try the program, or to '
     + 'rehearse before an event.',
 
   discord: 'Posts the current pairings and standings into one Discord channel, '
@@ -5249,8 +5259,9 @@ if (typeof window !== 'undefined') {
  *
  * A test tournament is one an organiser creates with Test mode ticked. It is
  * marked `config.demo` in the document, which is the same flag the tutorial's
- * demo event carries, and which already stops anything leaving the machine:
- * no CSVs are written to the backup folder and nothing is posted to Discord.
+ * demo event carries. It keeps CSVs out of the organiser's backup folder.
+ * Discord posting is deliberately NOT blocked — rehearsing it is the point of
+ * test mode — but those posts are coloured and labelled as a test.
  * One flag, one meaning -- this is not a real tournament.
  *
  * Names are deliberately Player1 and Club1 rather than anything that reads
@@ -6006,7 +6017,8 @@ function render() {
   if (isTestEvent()) {
     banner.className = 'on';
     banner.innerHTML = `<b>Test tournament.</b> Made-up data for trying things out.
-      Nothing is written to your backup folder and nothing is posted to Discord.`;
+      Nothing is written to your backup folder. Discord posts do go out, marked
+      as a test, so the feature can be rehearsed.`;
   } else {
     banner.className = '';
     banner.innerHTML = '';
@@ -7230,8 +7242,9 @@ function renderBackups() {
     <p class="small muted">Keeps one pairings post and one standings post in a
       channel, editing them as the day goes on rather than adding a new message
       each time.</p>
-    ${isDemo ? `<div class="issue warning">This is the tutorial's demo event, so
-      it will not post anywhere.</div>` : ''}
+    ${isDemo ? `<div class="issue warning">This is a test tournament. Posts
+      <b>do</b> go to the channel, coloured and labelled as a test — point the
+      webhook at a channel where made-up players are welcome.</div>` : ''}
     <div class="grid two">
       <label class="field" style="grid-column:1/-1"><span>Webhook URL</span>
         <input type="password" id="dcUrl" autocomplete="off" spellcheck="false"
@@ -7248,9 +7261,8 @@ function renderBackups() {
       <button class="primary" id="dcSave">Save</button>
       <button class="ghost" id="dcPost"${discordReady() ? '' : ' disabled'}>Post now</button>
       <button class="ghost" id="dcClear"${discordReady() ? '' : ' disabled'}>Forget it</button>
-      <span class="small muted">${esc(discordState.last || (discordReady()
-    ? 'Saved. Posts update after each draw and each round closes.'
-    : 'Not set up.'))}</span>
+      <span class="small muted">${esc(discordState.last || discordBlockedReason()
+    || 'Saved. Posts update after each draw and each round closes.')}</span>
     </div>
   </div>`;
 
@@ -7867,10 +7879,25 @@ function discordReady() {
   return Boolean(discordState.config && discordState.config.url);
 }
 
-/** The demo event must never reach a real channel. */
-function discordAllowed() {
+/**
+ * Why posting is off, or '' when it is on.
+ *
+ * A reason rather than a boolean, because the commonest way to meet this is
+ * to set the webhook up on a test tournament — which is the sensible thing to
+ * try first, and used to fail by doing nothing at all.
+ */
+function discordBlockedReason() {
   const t = state.store.doc;
-  return discordReady() && t && !(t.config && t.config.demo);
+  if (!t) return 'Open a tournament before posting.';
+  if (!discordReady()) return 'Paste the webhook URL and press Save first.';
+  return '';
+}
+
+/* A test tournament posts like any other: learning the feature on made-up
+ * players is exactly what test mode is for. The post is coloured and labelled
+ * as a test so it cannot be mistaken for a real draw. */
+function discordAllowed() {
+  return discordBlockedReason() === '';
 }
 
 async function saveDiscordConfig(config) {
@@ -7879,7 +7906,16 @@ async function saveDiscordConfig(config) {
 }
 
 async function postToDiscord(which, { quiet = false } = {}) {
-  if (!discordAllowed()) return;
+  // Say why rather than doing nothing: a dead button is a bug report.
+  const blocked = discordBlockedReason();
+  if (blocked) {
+    if (!quiet) {
+      discordState.last = blocked;
+      toast(blocked, 'warn', 9000);
+      if (state.view === 'backups') render();
+    }
+    return;
+  }
   const cfg = discordState.config;
   const t = state.store.doc;
   let poster;
@@ -7906,7 +7942,10 @@ async function postToDiscord(which, { quiet = false } = {}) {
           precision: state.store.rules.scorePrecision,
         });
       }
-      const key = `${job}MessageId`;
+      // Test posts keep their own message ids. The ids live with the webhook,
+      // not with the tournament, so without this a rehearsal would edit over
+      // the live pairings post of a real event running on the same machine.
+      const key = isTestEvent() ? `demo_${job}MessageId` : `${job}MessageId`;
       const id = await poster.send(payload, cfg[key] || null);
       if (id && id !== cfg[key]) await saveDiscordConfig({ ...cfg, [key]: id });
       discordState.last = `${job} posted ${when(new Date().toISOString().replace(/\.\d+Z$/, 'Z'))}`;

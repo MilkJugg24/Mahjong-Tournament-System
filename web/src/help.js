@@ -48,9 +48,10 @@ const FIELD_HELP = {
     + 'printed sheet and the CSV log both show it.',
 
   'test-mode': 'Creates a practice tournament instead of a real one. You get '
-    + 'buttons to generate made-up players and fill in made-up scores, every page '
-    + 'says it is a test, and nothing leaves this computer: no CSVs in your backup '
-    + 'folder, nothing posted to Discord. Use it to try the program, or to '
+    + 'buttons to generate made-up players and fill in made-up scores, and every '
+    + 'page says it is a test. No CSVs are written to your backup folder. Discord '
+    + 'posting does work, so the feature can be rehearsed; those posts are '
+    + 'coloured and labelled as a test. Use it to try the program, or to '
     + 'rehearse before an event.',
 
   discord: 'Posts the current pairings and standings into one Discord channel, '

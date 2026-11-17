@@ -2,8 +2,9 @@
  *
  * A test tournament is one an organiser creates with Test mode ticked. It is
  * marked `config.demo` in the document, which is the same flag the tutorial's
- * demo event carries, and which already stops anything leaving the machine:
- * no CSVs are written to the backup folder and nothing is posted to Discord.
+ * demo event carries. It keeps CSVs out of the organiser's backup folder.
+ * Discord posting is deliberately NOT blocked — rehearsing it is the point of
+ * test mode — but those posts are coloured and labelled as a test.
  * One flag, one meaning -- this is not a real tournament.
  *
  * Names are deliberately Player1 and Club1 rather than anything that reads

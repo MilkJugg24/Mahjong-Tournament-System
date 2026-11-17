@@ -702,7 +702,7 @@ test('the settings panel opens, switches tabs and sets the theme', { skip: SKIP 
 
 /* ------------------------------------------------------------- discord */
 
-test('Discord posting is set up, used, and never fires for the demo',
+test('Discord posting is set up, used, and rehearsable on a test event',
   { skip: SKIP }, async (t) => {
     build({ out: OUT });
     const browser = await chromium.launch();
@@ -711,11 +711,17 @@ test('Discord posting is set up, used, and never fires for the demo',
     try {
       // Nothing real is contacted: the webhook route is intercepted.
       await page.route('**/api/webhooks/**', (r) => {
-        posts.push(r.request().method());
+        const id = `m${posts.length + 1}`;
+        posts.push({
+          method: r.request().method(),
+          url: r.request().url(),
+          body: r.request().postData() || '',
+          id,
+        });
         r.fulfill({
           status: 200,
           contentType: 'application/json',
-          body: JSON.stringify({ id: `m${posts.length}` }),
+          body: JSON.stringify({ id }),
         });
       });
 
@@ -746,12 +752,16 @@ test('Discord posting is set up, used, and never fires for the demo',
         await page.waitForFunction(() => /posted/i.test(
           document.querySelector('#backupsBody').textContent), null, { timeout: 8000 });
         assert.ok(posts.length >= 1, 'nothing was posted');
-        assert.equal(posts[0], 'POST');
+        assert.equal(posts[0].method, 'POST');
       });
 
       const before = posts.length;
 
-      await t.test('the tutorial demo never reaches the channel', async () => {
+      /* Test mode used to be barred from posting, which made the one feature
+       * an organiser most wants to rehearse the one they could not. It posts
+       * now; what has to hold is that it is marked, and that it does not edit
+       * over the real event's live posts. */
+      await t.test('the tutorial demo posts, marked as a test', async () => {
         await page.click('#tourBtn');
         await page.waitForSelector('#tutorialBar.on');
         const total = Number((await page.textContent('.tut-count')).match(/of (\d+)/)[1]);
@@ -759,10 +769,25 @@ test('Discord posting is set up, used, and never fires for the demo',
           await page.click('#tutNext');
           await page.waitForTimeout(80);
         }
-        // Longer than the change debounce, so a leak would have fired by now.
+        // Longer than the change debounce, so the post has fired by now.
         await page.waitForTimeout(5000);
-        assert.equal(posts.length - before, 0,
-          `the demo event sent ${posts.length - before} request(s) to Discord`);
+        const sent = posts.slice(before);
+        assert.ok(sent.length >= 1, 'the demo event posted nothing');
+        for (const req of sent) {
+          assert.match(req.body, /Test tournament/,
+            'a demo post reached the channel unmarked');
+        }
+      });
+
+      await t.test('a rehearsal does not edit the real event\'s posts', () => {
+        const realIds = posts.slice(0, before).map((r) => r.id);
+        const edited = posts.slice(before)
+          .map((r) => (r.url.match(/\/messages\/(\w+)/) || [])[1])
+          .filter(Boolean);
+        for (const id of edited) {
+          assert.ok(!realIds.includes(id),
+            `the demo edited message ${id}, which belongs to the real event`);
+        }
       });
 
       assert.deepEqual(errors, [], errors.join(' | '));

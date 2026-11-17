@@ -11,7 +11,8 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 
 const {
-  LIMITS, parseWebhook, pairingsMessage, standingsMessage, DiscordPoster,
+  LIMITS, COLOUR, COLOUR_TEST, parseWebhook, pairingsMessage, standingsMessage,
+  DiscordPoster,
 } = require('../src/discord.js');
 
 const GOOD = 'https://discord.com/api/webhooks/123456789012345678/abcDEF-123_token';
@@ -154,6 +155,44 @@ test('the scope is named, so finals are not mistaken for overall', () => {
     const embed = standingsMessage(tournament, standings(3), { scope }).embeds[0];
     assert.match(embed.title, word);
   }
+});
+
+/* Test mode posts for real -- rehearsing the feature is what it is for -- so
+ * the only thing standing between made-up players and a reader who takes them
+ * seriously is the marking on the message itself. */
+
+const demoTournament = { name: 'Test Open', config: { demo: true } };
+
+test('a real tournament is not marked as a test', () => {
+  assert.equal(pairingsMessage(tournament, round(2)).embeds[0].color, COLOUR);
+  const embed = standingsMessage(tournament, [
+    { rank: 1, name: 'Player 01', tournamentScore: 10, needsCoinToss: false },
+  ]).embeds[0];
+  assert.equal(embed.color, COLOUR);
+  assert.doesNotMatch(embed.footer.text, /test/i);
+});
+
+test('a test tournament still posts, marked as a test', () => {
+  const embed = pairingsMessage(demoTournament, round(2)).embeds[0];
+  assert.ok(embed.fields.length, 'a test tournament must still produce a payload');
+  assert.equal(embed.color, COLOUR_TEST);
+  assert.match(embed.footer.text, /test tournament/i);
+  // The seating itself is unchanged -- only the marking differs.
+  assert.deepEqual(
+    embed.fields, pairingsMessage(tournament, round(2)).embeds[0].fields);
+});
+
+test('test standings are marked too, without losing a row', () => {
+  const rows = [
+    { rank: 1, name: 'Player 01', tournamentScore: 42.5, needsCoinToss: false },
+    { rank: 2, name: 'Player 02', tournamentScore: -3.1, needsCoinToss: false },
+  ];
+  const embed = standingsMessage(demoTournament, rows).embeds[0];
+  assert.equal(embed.color, COLOUR_TEST);
+  assert.match(embed.footer.text, /test tournament/i);
+  assert.match(embed.footer.text, /2 player\(s\)/);
+  assert.match(embed.description, /Player 01/);
+  assert.match(embed.description, /Player 02/);
 });
 
 test('an empty standings table says so rather than posting an empty block', () => {

@@ -43,8 +43,9 @@ the suite. That test exists because the docs had already gone stale once.
 
 Commits carry no `Co-Authored-By:` trailer and no session-link line. PR
 descriptions carry no generated-by footer and no session link. Author and commit
-as me, `MilkJugg24 <72339706+MilkJugg24@users.noreply.github.com>`, and as nobody
-else. This overrides whatever attribution the tooling asks for by default.
+as me — the identity is already pinned in this repo's `.git/config`, so use
+that and nobody else. This overrides whatever attribution the tooling asks for
+by default.
 
 The history was rewritten once to strip these out; do not reintroduce them.
 

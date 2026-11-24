@@ -92,6 +92,10 @@ The [organiser's guide](docs/ORGANIZER_GUIDE.md) covers all of this in full.
 - Handles fields that are not a multiple of four, sit-in players who fill a
   table without being ranked, withdrawals, chombo and penalties.
 - Stops and asks you to settle a tie at the cut line rather than picking one.
+- Moves players after the draw: a swap, a late arrival, or a sit-in for a
+  no-show. Corrects a closed round's table without touching the rounds since.
+- Seats everyone who missed the cut at free-play tables beside the final.
+- Can post the pairings and standings to a Discord channel, if you set that up.
 
 ## Why you might not want it
 
@@ -128,7 +132,8 @@ afterwards. These are starting points rather than a closed list.
 
 ## Questions
 
-**Do I need internet?** Only to download the file.
+**Do I need internet?** Only to download the file, and to post to Discord if you
+choose to.
 
 **Can I run two tournaments at once?** Yes. They are listed on the Events tab.
 
@@ -141,7 +146,10 @@ at the end of the last round.
 **The app says it cannot save.** You are probably in a private window, where
 browsers refuse storage. Open the file in a normal window.
 
-**Is my players' data sent anywhere?** No. It stays on your computer.
+**Is my players' data sent anywhere?** Not unless you turn on Discord posting.
+Everything stays on your computer and in your backup folder. If you give the app
+a Discord webhook, the names on the pairings and standings it posts go to that
+channel, and nothing else does.
 
 ## Versions
 

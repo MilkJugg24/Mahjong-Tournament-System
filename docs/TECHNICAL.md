@@ -11,8 +11,8 @@ How the system is built, and why.
 
 ## Shape of the thing
 
-One self-contained HTML file, about 300 KB, authored as separate sources and
-inlined at build time.
+One self-contained HTML file of a few hundred KB, authored as separate sources
+and inlined at build time.
 
 ```
 web/
@@ -24,7 +24,9 @@ web/
 │   ├── backup.js     CSV generation, the backup folder, restore points
 │   ├── persist.js    the IndexedDB working copy
 │   ├── printing.js   printable pages
+│   ├── discord.js    posting pairings and standings to a Discord webhook
 │   ├── help.js       help topics and the text behind every "?" bubble
+│   ├── testdata.js   made-up rosters and scores for test tournaments
 │   ├── tutorial.js   the guided walkthrough: demo data, steps, the engine
 │   ├── ui.js         the interface
 │   └── index.html, style.css
@@ -218,7 +220,8 @@ audited outside the program. `ara_sheet.csv` matches the ARA spreadsheet layout.
 
 ## Tests
 
-220 in all: 183 without the browser run, and the browser suite on top.
+`node web/run-tests.js` prints the current count. Without Playwright the browser
+suite is skipped and everything else runs, in under ten seconds.
 
 | File | Covers |
 |---|---|
@@ -230,6 +233,9 @@ audited outside the program. `ara_sheet.csv` matches the ARA spreadsheet layout.
 | `help.test.js` | help content, and that every `?` in the markup resolves to wording |
 | `docs.test.js` | that the docs' pointers into the code are still true, and the built page's index is accurate |
 | `tutorial.test.js` | the whole walkthrough driven headlessly, and Prev/Next round-tripping |
+| `discord.test.js` | webhook parsing, the message formats and Discord's size limits, with no network |
+| `testdata.test.js` | the made-up rosters and scores test tournaments are filled with |
+| `built-file.test.js` | that the committed page is exactly what the sources build |
 | `browser.test.js` | the built file, driven from `file://` |
 
 The browser run is the one that matters most: it opens the built page the way an
@@ -317,9 +323,9 @@ Python was retired:
 
 Every value identical. The CSV headers were compared the same way.
 
-The Python version is no longer published — see Versioning below — but it is
-still in this repository's history, at `fc4eb27`. It supported score runners
-entering results from their own phones, which needs a server.
+The Python version is not in this repository any more: it did not survive the
+rewrite of the history, so there is no commit to check it out from. It supported
+score runners entering results from their own phones, which needs a server.
 
 ---
 

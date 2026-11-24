@@ -250,6 +250,37 @@ phase set to **Free play**: everyone is seated, nobody is scored.
 
 ---
 
+## Posting to Discord
+
+The app can keep one pairings post and one standings post up to date in a
+Discord channel, so players can check their table from their phones. It is off
+until you set it up, and it is the only thing in the app that sends anything
+over the internet.
+
+1. In Discord, open the channel's settings: **Integrations → Webhooks → New
+   Webhook**, then **Copy Webhook URL**.
+2. In the app, paste it under **Post to Discord** on the Backups & print tab
+   and press **Save**.
+
+From then on the posts update by themselves: the pairings when a round is drawn
+or seats change, the standings as tables are entered and rounds close. Each
+update edits the existing post rather than adding a new message. **Post now**
+sends both straight away.
+
+Worth knowing:
+
+- **Players' names leave the computer** when you post. That is the point, but
+  make sure your players are happy with it.
+- **The webhook URL is a password** for that channel. The app keeps it in this
+  browser only, out of your backup folder and out of restore points, so a new
+  laptop needs it pasted again.
+- **A webhook can post and nothing else.** It cannot read messages or see your
+  members.
+- **Test tournaments post too**, coloured and labelled as a test, so you can
+  rehearse. Point the webhook at a channel where made-up names are welcome.
+
+---
+
 ## Backups
 
 You do not need to do anything for backups to happen. After every change the

@@ -10,7 +10,7 @@
  * -- it would just be last week's. So the comparison is byte for byte against
  * a fresh build, and the fix is one command:
  *
- *   node web/build.js
+ *   node source/web/build.js
  *
  * That is also why build.js puts no timestamp in the page. If it did, every
  * build would differ from the last and this test could never be written.
@@ -25,7 +25,8 @@ const path = require('node:path');
 
 const { build, checkSelfContained, OUTPUT_NAME } = require('../build.js');
 
-const ROOT = path.join(__dirname, '..', '..');
+// source/web/tests -> the repository root, where the committed page lives.
+const ROOT = path.join(__dirname, '..', '..', '..');
 const COMMITTED = path.join(ROOT, OUTPUT_NAME);
 
 /** Build into a throwaway directory, so the test cannot repair what it checks. */
@@ -40,7 +41,7 @@ function freshBuild() {
 test(`${OUTPUT_NAME} is committed at the root`, () => {
   assert.ok(fs.existsSync(COMMITTED),
     `${OUTPUT_NAME} is missing from the root of the repository. It is the `
-    + 'download: run `node web/build.js` and commit it.');
+    + 'download: run `node source/web/build.js` and commit it.');
 });
 
 test('the committed page is a current build of web/src', () => {
@@ -61,7 +62,7 @@ test('the committed page is a current build of web/src', () => {
 
   assert.fail(
     `${OUTPUT_NAME} is not what web/src builds -- it is stale, or it was edited `
-    + `by hand.\nRun \`node web/build.js\` and commit the result.\n\n${where}`);
+    + `by hand.\nRun \`node source/web/build.js\` and commit the result.\n\n${where}`);
 });
 
 test('the committed page has nothing left to fetch', () => {

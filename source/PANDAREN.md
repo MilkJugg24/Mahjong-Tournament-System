@@ -38,7 +38,7 @@ cross-platform legs.
 `Mahjong-Tournament-System.html` at the root is what people download — there
 are no releases, so the repository is the distribution.
 
-Any change under `web/src` means `node web/build.js` in the same commit.
+Any change under `web/src` means `node source/web/build.js` in the same commit.
 `web/tests/built-file.test.js` compares the committed page with a fresh build
 byte for byte and fails if they differ, and CI asks git the same question, so
 this is caught rather than shipped. Do not edit the page by hand.
@@ -47,6 +47,20 @@ Keep the build deterministic. Nothing time-dependent, random or
 machine-dependent goes into the output: the moment two builds of the same
 sources differ, that test has to go, and nothing is left watching the file
 people download.
+
+## The root is for people downloading
+
+Someone arriving on GitHub should see the program and the README and nothing to
+puzzle over. The root holds only `README.md`, the built page, `LICENSE` (GitHub
+only shows a licence it finds there) and what git and GitHub need there:
+`.github/`, `.gitignore`, `.gitattributes`. Everything else lives under
+`source/`. A new file goes in there too, wherever it belongs.
+
+The root README is for organisers. Developer and agent material goes in
+`source/README.md`, which the root README points to in small print at the end.
+
+Paths in the docs under `source/` are written from that folder, and commands
+from the root of the repository.
 
 ## Note on skipping CI for docs
 

@@ -12,11 +12,16 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 
-const ROOT = path.join(__dirname, '..', '..');
+/* The repository root holds only the README, the built page and what GitHub
+ * and git need there. Everything else is under source/, and the docs in it
+ * write their paths from that folder: web/src/store.js means
+ * source/web/src/store.js. The root README links with the full path. */
+const ROOT = path.join(__dirname, '..', '..', '..');
+const SOURCE = path.join(__dirname, '..', '..');
 const SRC = path.join(__dirname, '..', 'src');
 const read = (p) => fs.readFileSync(p, 'utf8');
 
-const MAP = path.join(ROOT, 'docs', 'CODE_MAP.md');
+const MAP = path.join(SOURCE, 'docs', 'CODE_MAP.md');
 
 /** Does `name` look like a function or method defined in this source? */
 function defines(code, name) {
@@ -88,24 +93,30 @@ function trackedFiles() {
   return TRACKED;
 }
 
-/** A path a doc may name: anything the repository actually tracks. */
+/**
+ * A path a doc may name: anything the repository actually tracks. web/ and
+ * docs/ are read from source/, as the docs write them; source/... and
+ * .github/... are already from the root.
+ */
 function namesSomethingReal(rel) {
-  return trackedFiles().has(rel);
+  const fromRoot = /^(?:web|docs)\//.test(rel) ? `source/${rel}` : rel;
+  return trackedFiles().has(fromRoot);
 }
 
 test('no doc points at a file that no longer exists', (t) => {
   if (trackedFiles().size === 0) return t.skip('git is not available here');
 
-  const docs = fs.readdirSync(path.join(ROOT, 'docs'))
+  const docs = fs.readdirSync(path.join(SOURCE, 'docs'))
     .filter((f) => f.endsWith('.md'))
-    .map((f) => path.join(ROOT, 'docs', f));
-  docs.push(path.join(ROOT, 'README.md'));
+    .map((f) => path.join(SOURCE, 'docs', f));
+  docs.push(path.join(ROOT, 'README.md'), path.join(SOURCE, 'README.md'),
+    path.join(SOURCE, 'PANDAREN.md'));
 
   const misses = [];
   for (const doc of docs) {
     const text = read(doc);
-    // Repo-relative paths written as web/..., docs/... or .github/...
-    for (const m of text.matchAll(/(?:^|[\s(`"])((?:web|docs|\.github)\/[\w./-]+\.(?:json|html|yml|css|js|md))(?![\w])/g)) {
+    // Paths written as web/..., docs/..., source/... or .github/...
+    for (const m of text.matchAll(/(?:^|[\s(`"])((?:source\/|web\/|docs\/|\.github\/)[\w./-]+\.(?:json|html|yml|css|js|md))(?![\w])/g)) {
       const rel = m[1];
       if (!namesSomethingReal(rel)) {
         misses.push(`${path.basename(doc)} points at ${rel}, which is not in the repository`);

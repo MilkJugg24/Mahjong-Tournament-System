@@ -19,8 +19,8 @@
  * and compares byte for byte, so a change to web/src that is not rebuilt fails
  * the suite rather than shipping a page that does not match its own sources.
  *
- *   node web/build.js            -> Mahjong-Tournament-System.html (repo root)
- *   node web/build.js --out DIR
+ *   node source/web/build.js            -> Mahjong-Tournament-System.html (repo root)
+ *   node source/web/build.js --out DIR
  */
 'use strict';
 
@@ -28,7 +28,8 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const SRC = path.join(__dirname, 'src');
-const DEFAULT_OUT = path.join(__dirname, '..');
+// source/web -> the repository root, where the page is the first thing seen.
+const DEFAULT_OUT = path.join(__dirname, '..', '..');
 const OUTPUT_NAME = 'Mahjong-Tournament-System.html';
 
 // Order matters: each file leans on the ones before it via window.RT.

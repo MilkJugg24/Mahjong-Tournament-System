@@ -66,17 +66,17 @@ jobs:
 
       # There is deliberately no install step: the project has no runtime or
       # build dependencies, so a bare Node has to be enough. This fails if a
-      # dependency ever sneaks into web/package.json.
+      # dependency ever sneaks into source/web/package.json.
       - name: Confirm nothing needs installing
         shell: bash
         run: |
           node --version
           node -e "
-            const pkg = require('./web/package.json');
+            const pkg = require('./source/web/package.json');
             for (const field of ['dependencies', 'peerDependencies']) {
               const deps = Object.keys(pkg[field] || {});
               if (deps.length) {
-                console.error('web/package.json has ' + field + ': ' + deps.join(', '));
+                console.error('source/web/package.json has ' + field + ': ' + deps.join(', '));
                 process.exit(1);
               }
             }
@@ -86,7 +86,7 @@ jobs:
       # Includes built-file.test.js, which rebuilds the page and compares it
       # byte for byte with the committed Mahjong-Tournament-System.html.
       - name: Run the test suite
-        run: node web/run-tests.js
+        run: node source/web/run-tests.js
 
       # The suite builds through the module; this exercises the command line
       # people actually type, and then proves the committed page is current
@@ -94,9 +94,9 @@ jobs:
       - name: Build the page and check it is already committed
         shell: bash
         run: |
-          node web/build.js
+          node source/web/build.js
           if ! git diff --exit-code -- Mahjong-Tournament-System.html; then
-            echo "::error::Mahjong-Tournament-System.html is stale. Run 'node web/build.js' and commit it."
+            echo "::error::Mahjong-Tournament-System.html is stale. Run 'node source/web/build.js' and commit it."
             exit 1
           fi
 
@@ -118,7 +118,7 @@ jobs:
           npx playwright install --with-deps chromium
 
       - name: Drive the built file through a whole tournament
-        run: node web/run-tests.js browser
+        run: node source/web/run-tests.js browser
 
       - name: Upload the built page if something failed
         if: failure()

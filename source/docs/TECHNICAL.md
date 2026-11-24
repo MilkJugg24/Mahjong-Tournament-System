@@ -14,6 +14,10 @@ How the system is built, and why.
 One self-contained HTML file of a few hundred KB, authored as separate sources
 and inlined at build time.
 
+The page sits alone at the root of the repository, next to the README, so that
+is what a visitor sees. Everything else is under `source/`, and the paths below
+are written from there.
+
 ```
 web/
 ├── src/
@@ -43,9 +47,9 @@ No runtime dependencies and no build dependencies. Playwright is needed only for
 the browser test, and only in CI.
 
 ```bash
-node web/build.js              # -> Mahjong-Tournament-System.html, at the root
-node web/run-tests.js          # the lot, including the browser run
-node web/run-tests.js --not browser   # no Playwright needed
+node source/web/build.js              # -> Mahjong-Tournament-System.html, at the root
+node source/web/run-tests.js          # the lot, including the browser run
+node source/web/run-tests.js --not browser   # no Playwright needed
 ```
 
 Use `run-tests.js` rather than `node --test "web/tests/*.test.js"`: Node 20 does
@@ -220,7 +224,7 @@ audited outside the program. `ara_sheet.csv` matches the ARA spreadsheet layout.
 
 ## Tests
 
-`node web/run-tests.js` prints the current count. Without Playwright the browser
+`node source/web/run-tests.js` prints the current count. Without Playwright the browser
 suite is skipped and everything else runs, in under ten seconds.
 
 | File | Covers |

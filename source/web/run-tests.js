@@ -6,9 +6,9 @@
  * found here and passed to the test runner explicitly, which every supported
  * version understands.
  *
- *   node web/run-tests.js              every test
- *   node web/run-tests.js browser      only files whose name contains "browser"
- *   node web/run-tests.js --not browser  everything except those
+ *   node source/web/run-tests.js              every test
+ *   node source/web/run-tests.js browser      only files whose name contains "browser"
+ *   node source/web/run-tests.js --not browser  everything except those
  */
 'use strict';
 
@@ -44,7 +44,7 @@ console.log('');
 
 const result = spawnSync(process.execPath, ['--test', ...files], {
   stdio: 'inherit',
-  cwd: path.join(__dirname, '..'),
+  cwd: path.join(__dirname, '..', '..'), // the repository root
 });
 
 process.exit(result.status === null ? 1 : result.status);

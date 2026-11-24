@@ -2,28 +2,31 @@
 
 [![tests](https://github.com/MilkJugg24/Mahjong-Tournament-System/actions/workflows/tests.yml/badge.svg)](https://github.com/MilkJugg24/Mahjong-Tournament-System/actions/workflows/tests.yml)
 
-Offline tournament software for riichi mahjong, which runs in your browser.
-Enter your players, draw the seating and type in the scores. It keeps the
-standings, runs the cut, prints the paperwork and writes every result out as
+Offline tournament software for riichi mahjong, in one file that runs in your
+browser. Enter your players, draw the seating and type in the scores. It keeps
+the standings, runs the cut, prints the paperwork and writes every result out as
 CSV.
+
+## Download
+
+**[⤓ Mahjong-Tournament-System.html](https://github.com/MilkJugg24/Mahjong-Tournament-System/raw/main/Mahjong-Tournament-System.html)**
+
+Right-click that link and choose **Save link as…**. A plain click shows the
+page's source code instead of saving it, because GitHub serves it as text.
+
+Or click [the file](Mahjong-Tournament-System.html) in the list above and press
+the download button (⤓) at the top right of it.
+
+That one file is the whole program. Double-click it and it opens. There is
+nothing to install, no account to make and no version to choose. It works in
+Chrome, Edge, Safari and Firefox, on Windows, Mac or Linux. Nothing in the
+`source` folder is needed to run it.
 
 Scoring follows the [WRC 2025 rules](https://www.worldriichi.org/wrc-rules),
 which is what the [American Riichi Association](https://arariichi.org/tournamentinabox)
 uses. The printed sheets match the ARA's Tournament-in-a-Box paperwork.
 
 ## Getting started
-
-The program is one file in this repository:
-[Mahjong-Tournament-System.html](Mahjong-Tournament-System.html), at the top of
-the file list above.
-
-Open it here on GitHub and press the download button over the file — the ⤓
-icon. GitHub displays HTML as text, so clicking through to the page itself
-shows you a wall of source code; the download button is the one that saves it.
-
-Double-click the saved file and it opens. There is nothing to install, no
-account to make and no version to choose. It works in Chrome, Edge, Safari and
-Firefox, on Windows, Mac or Linux.
 
 ### Pick a backup folder before your event
 
@@ -75,7 +78,8 @@ setting explains that setting.
 7. Make the cut when the qualifying rounds are done, and play the finals.
 8. Collect the results from your backup folder, where they already are.
 
-The [organiser's guide](docs/ORGANIZER_GUIDE.md) covers all of this in full.
+The [organiser's guide](source/docs/ORGANIZER_GUIDE.md) covers all of this in
+full.
 
 ## What it does
 
@@ -128,7 +132,7 @@ document the numbers came from:
 Nothing is saved until you press Save, and every number stays editable
 afterwards. These are starting points rather than a closed list.
 
-[Every setting, and the rule behind it.](docs/RULES.md)
+[Every setting, and the rule behind it.](source/docs/RULES.md)
 
 ## Questions
 
@@ -163,17 +167,6 @@ Nothing carries over from the old file to the new one, and nothing needs to:
 your tournaments live in the browser and in your backup folder, not in the
 file.
 
-## For developers
-
-- [docs/CODE_MAP.md](docs/CODE_MAP.md) says where everything is, arranged by the
-  question you arrived with. Start there to check how a score is worked out.
-- [docs/TECHNICAL.md](docs/TECHNICAL.md) covers how it is built, and the tests.
-
-The page at the root is generated: the sources are in `web/src`, and
-`node web/build.js` inlines them into it. A test rebuilds the page and compares
-it byte for byte, so a change to the sources that is not rebuilt fails the
-suite.
-
 ## Credits
 
 - Rules and worked examples: [World Riichi Championship Rules 2025](https://www.worldriichi.org/wrc-rules)
@@ -185,3 +178,12 @@ suite.
 ## Licence
 
 MIT. See [LICENSE](LICENSE).
+
+---
+
+<sub>For developers and coding agents: everything except this README and the
+program lives in <a href="source/"><code>source/</code></a> — the sources, the
+tests, the build and the full documentation. Start at
+<a href="source/README.md"><code>source/README.md</code></a>, which says where
+everything is and which conventions to follow. The page at the root is built
+from <code>source/web/src</code> and committed, so do not edit it by hand.</sub>

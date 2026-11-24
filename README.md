@@ -99,6 +99,9 @@ full.
 - Moves players after the draw: a swap, a late arrival, or a sit-in for a
   no-show. Corrects a closed round's table without touching the rounds since.
 - Seats everyone who missed the cut at free-play tables beside the final.
+- Signs players in at the door, and withdraws the no-shows in one go.
+- Runs the round clock, and puts it on a second screen for the room with the
+  seating or the standings.
 - Can post the pairings and standings to a Discord channel, if you set that up.
 
 ## Why you might not want it

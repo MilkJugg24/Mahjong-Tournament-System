@@ -29,6 +29,7 @@ web/
 │   ├── persist.js    the IndexedDB working copy
 │   ├── printing.js   printable pages
 │   ├── discord.js    posting pairings and standings to a Discord webhook
+│   ├── display.js    the round clock, and the room display for a projector
 │   ├── help.js       help topics and the text behind every "?" bubble
 │   ├── testdata.js   made-up rosters and scores for test tournaments
 │   ├── tutorial.js   the guided walkthrough: demo data, steps, the engine
@@ -238,6 +239,7 @@ suite is skipped and everything else runs, in under ten seconds.
 | `docs.test.js` | that the docs' pointers into the code are still true, and the built page's index is accurate |
 | `tutorial.test.js` | the whole walkthrough driven headlessly, and Prev/Next round-tripping |
 | `discord.test.js` | webhook parsing, the message formats and Discord's size limits, with no network |
+| `display.test.js` | the round clock's arithmetic, and what the room display shows |
 | `testdata.test.js` | the made-up rosters and scores test tournaments are filled with |
 | `built-file.test.js` | that the committed page is exactly what the sources build |
 | `browser.test.js` | the built file, driven from `file://` |

@@ -19,6 +19,12 @@ const {
 const { Persistence } = window.RT.persist;
 const { printPage, openPrintWindow } = window.RT.printing;
 const {
+  clockReading, formatClock, clockNote, clockHtml, displayBody, displayShell,
+} = window.RT.display;
+
+/* The room display window, if open, and what it is showing. */
+const display = { win: null, mode: 'seating' };
+const {
   DiscordPoster, pairingsMessage, standingsMessage, parseWebhook,
 } = window.RT.discord;
 const { testRoster, isSubName, fillOpenRound } = window.RT.testdata;
@@ -67,6 +73,7 @@ state.store.onChange = (doc, kind, payload) => {
   });
   backups.handleChange(state.store, kind, payload);
   discordOnChange(kind);
+  refreshDisplay();
 };
 
 /* ------------------------------------------------------------- helpers */
@@ -936,6 +943,7 @@ function renderRound() {
       </div>
       <div class="btnrow"><button class="primary big" id="genBtn">Draw the seating</button></div>
     </div>
+    ${displayCard()}
     ${renderRoundHistory(rounds)}`;
 
     $('#genBtn').addEventListener('click', () => {
@@ -963,6 +971,7 @@ function renderRound() {
       }, 20);
     });
     attachRoundHistory();
+    attachDisplayControls();
     return;
   }
 
@@ -996,6 +1005,10 @@ function renderRound() {
     <div class="stat"><div class="k">Seat wind spread</div><div class="v">${num(metrics.worstWindImbalance)}</div>
       <div class="n">worst gap for any player</div></div>
   </div>
+
+  ${clockCard(rnd)}
+
+  ${displayCard()}
 
   <div class="card">
     <div class="row" style="margin-bottom:12px">
@@ -1052,6 +1065,9 @@ function renderRound() {
     }));
   }
 
+  attachClockControls(rnd);
+  attachDisplayControls();
+
   const mv = $('#mvBtn');
   if (mv) {
     // Start the two lists on different players.
@@ -1087,6 +1103,145 @@ function renderRound() {
   });
 
   attachRoundHistory();
+}
+
+/* ------------------------------------------------- the clock and display
+ *
+ * "Minutes per hanchan" was stored and read by nothing. The round page now
+ * runs a clock from it, and a second window shows that clock and the seating
+ * or standings to the room, for a projector. display.js does the arithmetic
+ * and the markup; this is the wiring. */
+
+const clockMinutes = () => num(state.store.doc.config.hanchanMinutes) || 90;
+const readClock = (clock) =>
+  clockReading(clock, Date.now(), { defaultMinutes: clockMinutes() });
+
+function clockCard(rnd) {
+  const reading = readClock(rnd.clock);
+  const label = reading.running ? 'Pause' : (reading.started ? 'Resume' : 'Start the clock');
+  const tone = reading.over ? 'over' : (reading.warn ? 'warn' : '');
+  return `<div class="card">
+    <div class="row" style="gap:12px;flex-wrap:wrap;align-items:center">
+      <h2 style="margin:0">Clock</h2>
+      <span class="roundclock ${tone}" id="rcClock">${formatClock(reading.remainingMs)}</span>
+      <span class="small muted" id="rcNote">${esc(clockNote(reading))}</span>
+      <span class="spacer"></span>
+      <button class="${reading.running ? 'ghost' : 'primary'}" id="rcToggle">${label}</button>
+      ${reading.started ? '<button class="ghost" id="rcReset">Reset</button>' : ''}
+    </div>
+    <p class="small muted" style="margin-bottom:0">A ${Math.round(reading.durationMs / 60000)}-minute
+      hanchan. The ARA calls the time left at 30, 45, 60 and 75 minutes; when time is up the
+      hand in play finishes and no new one starts.</p>
+  </div>`;
+}
+
+function displayCard() {
+  const isOpen = display.win && !display.win.closed;
+  const modes = [['seating', 'Seating'], ['standings', 'Standings'], ['clock', 'Clock only']];
+  return `<div class="card">
+    <div class="row" style="gap:10px;flex-wrap:wrap;align-items:center">
+      <h2 style="margin:0">Room display <button type="button" class="qmark" data-help="room-display"
+        aria-label="What is this?">?</button></h2>
+      <span class="spacer"></span>
+      <button class="ghost" id="dispOpen">${isOpen ? 'Bring the display forward' : 'Open the room display'}</button>
+    </div>
+    <div class="btnrow" style="margin-top:8px;align-items:center">
+      <span class="small muted">Showing:</span>
+      ${modes.map(([m, text]) => `<button class="${display.mode === m ? 'primary' : 'ghost'}"
+        data-dmode="${m}">${text}</button>`).join('')}
+    </div>
+  </div>`;
+}
+
+function attachClockControls(rnd) {
+  const toggle = $('#rcToggle');
+  if (toggle) {
+    toggle.addEventListener('click', () => guard(() => {
+      const running = readClock(rnd.clock).running;
+      state.round = running
+        ? state.store.pauseClock(rnd.id)
+        : state.store.startClock(rnd.id);
+      render();
+    }));
+  }
+  const reset = $('#rcReset');
+  if (reset) {
+    reset.addEventListener('click', () => confirmThen(
+      `Reset the clock to ${clockMinutes()} minutes?`, () => guard(() => {
+        state.round = state.store.resetClock(rnd.id);
+        render();
+      })));
+  }
+}
+
+function attachDisplayControls() {
+  const open = $('#dispOpen');
+  if (open) open.addEventListener('click', () => guard(() => { openDisplay(); render(); }));
+  $$('[data-dmode]').forEach((b) => b.addEventListener('click', () => {
+    display.mode = b.dataset.dmode;
+    refreshDisplay();
+    render();
+  }));
+}
+
+/** Open the room display, or bring it forward if it is already open. */
+function openDisplay() {
+  if (display.win && !display.win.closed) {
+    display.win.focus();
+    return;
+  }
+  // Named, so a display left open from before a reload is reused, not doubled.
+  const win = window.open('', 'rt-room-display');
+  if (!win) {
+    throw new Error('The browser blocked the display window. Allow pop-ups for this page, '
+      + 'then try again.');
+  }
+  win.document.open();
+  win.document.write(displayShell(state.store.doc ? state.store.doc.name : 'Room display'));
+  win.document.close();
+  display.win = win;
+  refreshDisplay();
+}
+
+/** Redraw the room display from the current state. Cheap enough for every change. */
+function refreshDisplay() {
+  if (!display.win) return;
+  if (display.win.closed) {
+    display.win = null;
+    return;
+  }
+  const t = state.store.doc;
+  const body = display.win.document.body;
+  if (!t || !body) return;
+  const open = state.store.openRound();
+  const round = open ? state.store.getRound(open.id) : null;
+  body.innerHTML = displayBody({
+    tournament: t,
+    round,
+    standings: state.store.standings('overall'),
+    reading: open ? readClock(open.clock) : null,
+    mode: display.mode,
+    precision: state.store.rules.scorePrecision,
+  });
+}
+
+/** Once a second: move both clocks on, without redrawing anything else. */
+function tickClocks() {
+  if (!state.store.doc) return;
+  const open = state.store.openRound();
+  if (!open) return;
+  const reading = readClock(open.clock);
+  const el = $('#rcClock');
+  if (el) {
+    el.textContent = formatClock(reading.remainingMs);
+    el.className = `roundclock ${reading.over ? 'over' : (reading.warn ? 'warn' : '')}`;
+    const note = $('#rcNote');
+    if (note) note.textContent = clockNote(reading);
+  }
+  if (display.win && !display.win.closed) {
+    const clock = display.win.document.getElementById('clock');
+    if (clock) clock.innerHTML = clockHtml(reading);
+  }
 }
 
 /**
@@ -2622,6 +2777,9 @@ async function init() {
   }));
 
   initFieldHelp();
+
+  // The round clock, here and on the room display, moves once a second.
+  setInterval(tickClocks, 1000);
 
   $('#helpBtn').addEventListener('click', () => {
     if (state.view === 'help') { setView(hasTournament() ? 'round' : 'home'); return; }

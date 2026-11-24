@@ -943,6 +943,45 @@ test('the field plan says what fills the last table', () => {
   assert.equal(withSitIns(64, 3).fieldPlan().sitInsUsed, 0);
 });
 
+/* -------------------------------------------------------- the clock */
+
+test('the clock starts at the minutes per hanchan, and pausing banks the time', () => {
+  const store = newStore();
+  store.update({ config: { hanchanMinutes: 80 } });
+  addPlayers(store, 4);
+  const round = store.generateRound();
+  const t0 = Date.parse('2026-11-24T09:30:00Z');
+  store.startClock(round.id, { at: t0 });
+  assert.equal(store.findRound(round.id).clock.minutes, 80);
+  store.pauseClock(round.id, { at: t0 + 25 * 60000 });
+  const clock = store.findRound(round.id).clock;
+  assert.equal(clock.startedAt, null);
+  assert.equal(clock.elapsedMs, 25 * 60000);
+  store.startClock(round.id, { at: t0 + 30 * 60000 });
+  store.pauseClock(round.id, { at: t0 + 35 * 60000 });
+  assert.equal(store.findRound(round.id).clock.elapsedMs, 30 * 60000);
+});
+
+test('resetting the clock stops it at the full length', () => {
+  const store = newStore();
+  addPlayers(store, 4);
+  const round = store.generateRound();
+  store.startClock(round.id, { at: 0 });
+  store.resetClock(round.id);
+  assert.deepEqual(store.findRound(round.id).clock, { minutes: 90, startedAt: null, elapsedMs: 0 });
+});
+
+test('closing a round stops its clock, and a closed round\'s cannot start', () => {
+  const store = newStore();
+  addPlayers(store, 4);
+  const round = store.generateRound();
+  store.startClock(round.id);
+  playRound(store, round.id);
+  store.closeRound(round.id);
+  assert.equal(store.findRound(round.id).clock.startedAt, null);
+  assert.throws(() => store.startClock(round.id), /closed/);
+});
+
 /* ---------------------------------------------------------- sign-in */
 
 test('signing in, and withdrawing whoever did not come', () => {

@@ -10,22 +10,23 @@
 
   WHAT IS IN HERE
 
-    This page is the whole program: 12 source files inlined in the order
+    This page is the whole program: 13 source files inlined in the order
     below, each behind a banner you can search for. The guide to the code
     is docs/CODE_MAP.md in the repository.
 
-    RT:FILE rational.js  line    814  Exact rational arithmetic.  <-- the arithmetic
-    RT:FILE scoring.js   line   1042  Scoring engine -- World Riichi Championship 2025.  <-- the arithmetic
-    RT:FILE seating.js   line   1809  Seating and pairing engine.
-    RT:FILE store.js     line   2449  Tournament operations -- the layer the interface sits on.
-    RT:FILE backup.js    line   3914  Backups: the CSV files, the folder on disk, and restore points.
-    RT:FILE persist.js   line   4682  The working copy: IndexedDB.
-    RT:FILE printing.js  line   4919  Printable pages.
-    RT:FILE discord.js   line   5239  Posting pairings and standings to a Discord channel.
-    RT:FILE help.js      line   5494  Help content: the help page, and the text behind every "?" bubble.
-    RT:FILE testdata.js  line   5794  Made-up rosters and made-up scores, for trying the program out.
-    RT:FILE tutorial.js  line   5920  The guided tutorial: a demo tournament that plays itself while ...
-    RT:FILE ui.js        line   6387  The browser interface.
+    RT:FILE rational.js  line    819  Exact rational arithmetic.  <-- the arithmetic
+    RT:FILE scoring.js   line   1047  Scoring engine -- World Riichi Championship 2025.  <-- the arithmetic
+    RT:FILE seating.js   line   1814  Seating and pairing engine.
+    RT:FILE store.js     line   2454  Tournament operations -- the layer the interface sits on.
+    RT:FILE backup.js    line   3980  Backups: the CSV files, the folder on disk, and restore points.
+    RT:FILE persist.js   line   4748  The working copy: IndexedDB.
+    RT:FILE printing.js  line   4985  Printable pages.
+    RT:FILE discord.js   line   5305  Posting pairings and standings to a Discord channel.
+    RT:FILE display.js   line   5560  The room display: the round clock, and the seating or standings...
+    RT:FILE help.js      line   5763  Help content: the help page, and the text behind every "?" bubble.
+    RT:FILE testdata.js  line   6069  Made-up rosters and made-up scores, for trying the program out.
+    RT:FILE tutorial.js  line   6195  The guided tutorial: a demo tournament that plays itself while ...
+    RT:FILE ui.js        line   6662  The browser interface.
 
     To check how a score was worked out, read scoring.js: the formula is
     written out at the top of it, and rational.js is the exact arithmetic
@@ -235,6 +236,10 @@ table.data tr.me { background: var(--accent-soft); }
   display: block; width: 100%; font: inherit; color: var(--text);
 }
 .tcard:hover { border-color: var(--accent); box-shadow: var(--shadow); }
+.roundclock { font-family: var(--mono); font-size: 1.9rem; font-weight: 700;
+  font-variant-numeric: tabular-nums; line-height: 1; }
+.roundclock.warn { color: var(--warn); }
+.roundclock.over { color: var(--danger); }
 .tcard.free { border-style: dashed; cursor: default; color: var(--muted); }
 .tcard.free:hover { border-color: var(--border); box-shadow: none; }
 .tcard.entered { border-left-color: var(--warn); }
@@ -3515,6 +3520,58 @@ class TournamentStore {
     return this.getRound(round.id);
   }
 
+  /* ----------------------------------------------------------- the clock
+   *
+   * Each round keeps its own clock: { minutes, startedAt, elapsedMs }.
+   * startedAt is set while it runs; elapsedMs is the time banked by earlier
+   * runs, so a pause loses nothing. The length comes from Minutes per hanchan
+   * when the clock is first used. display.js reads it. */
+
+  clockFor(round) {
+    return round.clock || {
+      minutes: Number(this.require().config.hanchanMinutes) || 90,
+      startedAt: null,
+      elapsedMs: 0,
+    };
+  }
+
+  startClock(roundId, { at = Date.now() } = {}) {
+    const round = this.findRound(roundId);
+    if (round.status === 'complete') {
+      throw new StoreError('This round is closed, so its clock cannot be started.');
+    }
+    const clock = this.clockFor(round);
+    if (clock.startedAt) return this.getRound(round.id);
+    round.clock = { ...clock, startedAt: new Date(at).toISOString() };
+    this.changed('clock_started', { roundId: round.id, elapsedMs: clock.elapsedMs });
+    return this.getRound(round.id);
+  }
+
+  pauseClock(roundId, { at = Date.now() } = {}) {
+    const round = this.findRound(roundId);
+    const clock = this.clockFor(round);
+    if (!clock.startedAt) return this.getRound(round.id);
+    round.clock = {
+      ...clock,
+      startedAt: null,
+      elapsedMs: clock.elapsedMs + Math.max(0, at - Date.parse(clock.startedAt)),
+    };
+    this.changed('clock_paused', { roundId: round.id, elapsedMs: round.clock.elapsedMs });
+    return this.getRound(round.id);
+  }
+
+  /** Back to the full length, stopped. Picks up a changed Minutes per hanchan. */
+  resetClock(roundId) {
+    const round = this.findRound(roundId);
+    round.clock = {
+      minutes: Number(this.require().config.hanchanMinutes) || 90,
+      startedAt: null,
+      elapsedMs: 0,
+    };
+    this.changed('clock_reset', { roundId: round.id });
+    return this.getRound(round.id);
+  }
+
   closeRound(roundId, { force = false } = {}) {
     const detail = this.getRound(roundId);
     const round = this.findRound(roundId);
@@ -3525,6 +3582,15 @@ class TournamentStore {
       throw new StoreError(
         `These tables have no result yet: ${missing.join(', ')}. `
         + 'Enter them, or close the round anyway if they did not play.');
+    }
+    // A closed round's clock stops where it was, rather than running on.
+    if (round.clock && round.clock.startedAt) {
+      round.clock = {
+        ...round.clock,
+        startedAt: null,
+        elapsedMs: round.clock.elapsedMs
+          + Math.max(0, Date.now() - Date.parse(round.clock.startedAt)),
+      };
     }
     round.status = 'complete';
     round.closedAt = now();
@@ -5491,6 +5557,209 @@ if (typeof window !== 'undefined') {
 </script>
 <script>
 /* ======================================================================
+ * RT:FILE display.js
+ * ====================================================================== */
+/* The room display: the round clock, and the seating or standings, for a projector.
+ *
+ * The organiser keeps the laptop for entering scores. This is the second
+ * window, dragged onto the projector or a big screen, that the room reads:
+ * where am I sitting, how long is left, how do the standings look.
+ *
+ * Everything here is pure. clockReading() turns a round's clock into numbers,
+ * and the rest turn the tournament's state into HTML. ui.js owns the window:
+ * it writes displayShell() once, puts displayBody() in it on every change, and
+ * refreshes the clock every second.
+ *
+ * The clock is stored on the round as { minutes, startedAt, elapsedMs }:
+ * startedAt is set while it runs, and elapsedMs holds the time banked by
+ * earlier runs, so pausing and resuming lose nothing.
+ */
+(function () {
+'use strict';
+
+/* The ARA calls the time remaining at these minutes into a 90-minute hanchan. */
+const CALLS = [30, 45, 60, 75];
+
+/* When the clock turns amber: the last call before time, 15 minutes out. */
+const WARN_MS = 15 * 60 * 1000;
+
+function esc(value) {
+  return String(value ?? '').replace(/[&<>"']/g, (c) => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+  }[c]));
+}
+
+/** A round's clock as numbers, at `nowMs`. A missing clock reads as unstarted. */
+function clockReading(clock, nowMs, { defaultMinutes = 90 } = {}) {
+  const c = clock || { minutes: defaultMinutes, startedAt: null, elapsedMs: 0 };
+  const durationMs = Math.max(0, Number(c.minutes) || 0) * 60000;
+  const since = c.startedAt ? Math.max(0, nowMs - Date.parse(c.startedAt)) : 0;
+  const elapsedMs = Math.max(0, Number(c.elapsedMs) || 0) + since;
+  const remainingMs = durationMs - elapsedMs;
+  const passed = CALLS.filter((m) => elapsedMs >= m * 60000);
+  return {
+    running: Boolean(c.startedAt),
+    started: Boolean(c.startedAt) || elapsedMs > 0,
+    durationMs,
+    elapsedMs,
+    remainingMs,
+    over: durationMs > 0 && remainingMs <= 0,
+    warn: remainingMs > 0 && remainingMs <= WARN_MS,
+    lastCall: passed.length ? passed[passed.length - 1] : null,
+  };
+}
+
+/** Milliseconds as m:ss, never negative: time up reads 0:00. */
+function formatClock(ms) {
+  const total = Math.max(0, Math.ceil(ms / 1000));
+  const m = Math.floor(total / 60);
+  const s = total % 60;
+  return `${m}:${String(s).padStart(2, '0')}`;
+}
+
+/** The line under the clock: what to say to the room, if anything. */
+function clockNote(reading) {
+  if (!reading) return '';
+  if (reading.over) return 'Time. Finish the hand in play; no new hands.';
+  if (!reading.started) return 'Not started';
+  if (!reading.running) return 'Paused';
+  return '';
+}
+
+/** The clock's own markup: refreshed every second on its own. */
+function clockHtml(reading) {
+  if (!reading) return '';
+  const cls = reading.over ? 'over' : (reading.warn ? 'warn' : '');
+  const note = clockNote(reading);
+  return `<div class="time ${cls}">${formatClock(reading.remainingMs)}</div>`
+    + (note ? `<div class="note">${esc(note)}</div>` : '');
+}
+
+/** Everyone in a round, alphabetically, with where to sit: what a player looks for. */
+function seatingBody(round) {
+  const winds = ['East', 'South', 'West', 'North'];
+  const rows = [];
+  for (const table of round.tables) {
+    for (const seat of table.seats) {
+      if (!seat.name) continue;
+      rows.push({
+        name: seat.name,
+        where: `${table.tableNumber}`,
+        wind: winds[seat.seatIndex] || '',
+        free: Boolean(table.freePlay),
+      });
+    }
+  }
+  for (const bye of round.byes || []) rows.push({ name: bye.name, where: '', wind: '', free: false });
+  rows.sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()));
+  const items = rows.map((r) => (r.where
+    ? `<li><span class="nm">${esc(r.name)}</span><span class="at">${esc(r.where)}`
+      + `<small>${esc(r.wind)}${r.free ? ' &middot; free play' : ''}</small></span></li>`
+    : `<li class="out"><span class="nm">${esc(r.name)}</span><span class="at">`
+      + '<small>sitting out</small></span></li>')).join('');
+  return `<ul class="list seating">${items}</ul>`;
+}
+
+function standingsBody(standings, precision) {
+  const fmt = (v) => {
+    const n = Number(v);
+    const s = n.toFixed(precision);
+    return n > 0 ? `+${s}` : s;
+  };
+  const items = standings.map((s, i) => {
+    const cut = s.stage === 'qualifying' && i > 0 && standings[i - 1].stage === 'final';
+    return (cut ? '<li class="cutline">did not make the cut</li>' : '')
+      + `<li><span class="rk">${s.rank}${s.needsCoinToss ? '*' : ''}</span>`
+      + `<span class="nm">${esc(s.name)}</span>`
+      + `<span class="sc">${esc(fmt(s.tournamentScore))}</span></li>`;
+  }).join('');
+  return `<ol class="list standings">${items}</ol>`;
+}
+
+/**
+ * Everything in the window except its styles.
+ *
+ *   mode   'seating'   the clock, and where everyone sits this round
+ *          'standings' the clock, and the event's standings
+ *          'clock'     the clock alone, as large as it will go
+ */
+function displayBody({
+  tournament, round = null, standings = [], reading = null, mode = 'seating', precision = 1,
+}) {
+  const title = round ? round.label : 'Between rounds';
+  const clock = round ? `<div id="clock" class="clock">${clockHtml(reading)}</div>` : '';
+  if (mode === 'clock') {
+    return `<main class="only-clock"><h1>${esc(tournament.name)} &middot; ${esc(title)}</h1>`
+      + `${clock || '<p class="idle">No round is open.</p>'}</main>`;
+  }
+  let content;
+  if (mode === 'standings') {
+    content = standings.length
+      ? standingsBody(standings, precision)
+      : '<p class="idle">Standings appear once a table has been scored.</p>';
+  } else {
+    content = round ? seatingBody(round) : '<p class="idle">No round is open.</p>';
+  }
+  const heading = mode === 'standings' ? 'Standings' : 'Find your seat';
+  return `<header><div><h1>${esc(tournament.name)}</h1>`
+    + `<h2>${esc(title)} &middot; ${heading}</h2></div>${clock}</header>`
+    + `<main class="${esc(mode)}">${content}</main>`;
+}
+
+const CSS = `
+:root { color-scheme: dark; }
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body { background: #0f1512; color: #f2f5f3; padding: 2.5vh 3vw;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+header { display: flex; justify-content: space-between; align-items: flex-start; gap: 3vw;
+  border-bottom: 2px solid #2b3a33; padding-bottom: 1.5vh; margin-bottom: 2vh; }
+h1 { margin: 0; font-size: 2.6vw; }
+h2 { margin: .4vh 0 0; font-size: 1.8vw; font-weight: 500; color: #a9bcb2; }
+.clock { text-align: right; }
+.clock .time { font-size: 6vw; font-weight: 800; line-height: 1; font-variant-numeric: tabular-nums; }
+.clock .time.warn { color: #f2c35b; }
+.clock .time.over { color: #ff8a80; }
+.clock .note { font-size: 1.4vw; color: #a9bcb2; margin-top: .6vh; }
+.only-clock { height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+.only-clock h1 { font-size: 2.4vw; color: #a9bcb2; font-weight: 500; }
+.only-clock .clock { text-align: center; }
+.only-clock .clock .time { font-size: 26vw; }
+.only-clock .clock .note { font-size: 2.6vw; }
+.list { list-style: none; margin: 0; padding: 0; columns: 18rem; column-gap: 3vw; }
+.list li { display: flex; gap: 1vw; align-items: baseline; break-inside: avoid;
+  padding: .45vh 0; border-bottom: 1px solid #1f2a25; font-size: 1.55vw; }
+.list .nm { flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.seating .at { font-weight: 800; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.seating .at small { font-weight: 400; color: #a9bcb2; margin-left: .6vw; font-size: .75em; }
+.seating li.out .nm { color: #a9bcb2; }
+.standings .rk { width: 2.6em; color: #a9bcb2; font-variant-numeric: tabular-nums; }
+.standings .sc { font-weight: 700; font-variant-numeric: tabular-nums; }
+.standings li.cutline { color: #a9bcb2; font-size: 1.1vw; border-bottom: 0; padding-top: 1.2vh; }
+.idle { font-size: 2vw; color: #a9bcb2; }
+`;
+
+/** The window's document, written once. displayBody() fills its body. */
+function displayShell(title) {
+  return '<!doctype html><html lang="en"><head><meta charset="utf-8">'
+    + `<title>${esc(title)} &middot; room display</title><style>${CSS}</style></head>`
+    + '<body></body></html>';
+}
+
+const API = {
+  CALLS, clockReading, formatClock, clockNote, clockHtml, displayBody, displayShell,
+};
+
+if (typeof module !== 'undefined' && module.exports) module.exports = API;
+if (typeof window !== 'undefined') {
+  window.RT = window.RT || {};
+  window.RT.display = API;
+}
+}());
+
+</script>
+<script>
+/* ======================================================================
  * RT:FILE help.js
  * ====================================================================== */
 /* Help content: the help page, and the text behind every "?" bubble.
@@ -5532,6 +5801,12 @@ const FIELD_HELP = {
     + 'score. Someone not in this round -- a late arrival, or a sit-in for a no-show -- '
     + 'takes the seat, and the player they replace leaves the round with no score; add '
     + 'a penalty on the Cut & finals tab if your rules give one for a missed hanchan.',
+
+  'room-display': 'A second window for a projector or a big screen: drag it there and '
+    + 'make it full screen. It shows the round clock with either where everyone sits '
+    + '(alphabetically, so players can find themselves), the standings, or the clock '
+    + 'alone, and keeps itself up to date as you work in this window. It needs this '
+    + 'window to stay open.',
 
   'sign-in': 'Tick people off as they arrive: the Here box, or type part of a name '
     + 'and press Enter when only one matches. When everyone who is coming is here, '
@@ -6407,6 +6682,12 @@ const {
 const { Persistence } = window.RT.persist;
 const { printPage, openPrintWindow } = window.RT.printing;
 const {
+  clockReading, formatClock, clockNote, clockHtml, displayBody, displayShell,
+} = window.RT.display;
+
+/* The room display window, if open, and what it is showing. */
+const display = { win: null, mode: 'seating' };
+const {
   DiscordPoster, pairingsMessage, standingsMessage, parseWebhook,
 } = window.RT.discord;
 const { testRoster, isSubName, fillOpenRound } = window.RT.testdata;
@@ -6455,6 +6736,7 @@ state.store.onChange = (doc, kind, payload) => {
   });
   backups.handleChange(state.store, kind, payload);
   discordOnChange(kind);
+  refreshDisplay();
 };
 
 /* ------------------------------------------------------------- helpers */
@@ -7324,6 +7606,7 @@ function renderRound() {
       </div>
       <div class="btnrow"><button class="primary big" id="genBtn">Draw the seating</button></div>
     </div>
+    ${displayCard()}
     ${renderRoundHistory(rounds)}`;
 
     $('#genBtn').addEventListener('click', () => {
@@ -7351,6 +7634,7 @@ function renderRound() {
       }, 20);
     });
     attachRoundHistory();
+    attachDisplayControls();
     return;
   }
 
@@ -7384,6 +7668,10 @@ function renderRound() {
     <div class="stat"><div class="k">Seat wind spread</div><div class="v">${num(metrics.worstWindImbalance)}</div>
       <div class="n">worst gap for any player</div></div>
   </div>
+
+  ${clockCard(rnd)}
+
+  ${displayCard()}
 
   <div class="card">
     <div class="row" style="margin-bottom:12px">
@@ -7440,6 +7728,9 @@ function renderRound() {
     }));
   }
 
+  attachClockControls(rnd);
+  attachDisplayControls();
+
   const mv = $('#mvBtn');
   if (mv) {
     // Start the two lists on different players.
@@ -7475,6 +7766,145 @@ function renderRound() {
   });
 
   attachRoundHistory();
+}
+
+/* ------------------------------------------------- the clock and display
+ *
+ * "Minutes per hanchan" was stored and read by nothing. The round page now
+ * runs a clock from it, and a second window shows that clock and the seating
+ * or standings to the room, for a projector. display.js does the arithmetic
+ * and the markup; this is the wiring. */
+
+const clockMinutes = () => num(state.store.doc.config.hanchanMinutes) || 90;
+const readClock = (clock) =>
+  clockReading(clock, Date.now(), { defaultMinutes: clockMinutes() });
+
+function clockCard(rnd) {
+  const reading = readClock(rnd.clock);
+  const label = reading.running ? 'Pause' : (reading.started ? 'Resume' : 'Start the clock');
+  const tone = reading.over ? 'over' : (reading.warn ? 'warn' : '');
+  return `<div class="card">
+    <div class="row" style="gap:12px;flex-wrap:wrap;align-items:center">
+      <h2 style="margin:0">Clock</h2>
+      <span class="roundclock ${tone}" id="rcClock">${formatClock(reading.remainingMs)}</span>
+      <span class="small muted" id="rcNote">${esc(clockNote(reading))}</span>
+      <span class="spacer"></span>
+      <button class="${reading.running ? 'ghost' : 'primary'}" id="rcToggle">${label}</button>
+      ${reading.started ? '<button class="ghost" id="rcReset">Reset</button>' : ''}
+    </div>
+    <p class="small muted" style="margin-bottom:0">A ${Math.round(reading.durationMs / 60000)}-minute
+      hanchan. The ARA calls the time left at 30, 45, 60 and 75 minutes; when time is up the
+      hand in play finishes and no new one starts.</p>
+  </div>`;
+}
+
+function displayCard() {
+  const isOpen = display.win && !display.win.closed;
+  const modes = [['seating', 'Seating'], ['standings', 'Standings'], ['clock', 'Clock only']];
+  return `<div class="card">
+    <div class="row" style="gap:10px;flex-wrap:wrap;align-items:center">
+      <h2 style="margin:0">Room display <button type="button" class="qmark" data-help="room-display"
+        aria-label="What is this?">?</button></h2>
+      <span class="spacer"></span>
+      <button class="ghost" id="dispOpen">${isOpen ? 'Bring the display forward' : 'Open the room display'}</button>
+    </div>
+    <div class="btnrow" style="margin-top:8px;align-items:center">
+      <span class="small muted">Showing:</span>
+      ${modes.map(([m, text]) => `<button class="${display.mode === m ? 'primary' : 'ghost'}"
+        data-dmode="${m}">${text}</button>`).join('')}
+    </div>
+  </div>`;
+}
+
+function attachClockControls(rnd) {
+  const toggle = $('#rcToggle');
+  if (toggle) {
+    toggle.addEventListener('click', () => guard(() => {
+      const running = readClock(rnd.clock).running;
+      state.round = running
+        ? state.store.pauseClock(rnd.id)
+        : state.store.startClock(rnd.id);
+      render();
+    }));
+  }
+  const reset = $('#rcReset');
+  if (reset) {
+    reset.addEventListener('click', () => confirmThen(
+      `Reset the clock to ${clockMinutes()} minutes?`, () => guard(() => {
+        state.round = state.store.resetClock(rnd.id);
+        render();
+      })));
+  }
+}
+
+function attachDisplayControls() {
+  const open = $('#dispOpen');
+  if (open) open.addEventListener('click', () => guard(() => { openDisplay(); render(); }));
+  $$('[data-dmode]').forEach((b) => b.addEventListener('click', () => {
+    display.mode = b.dataset.dmode;
+    refreshDisplay();
+    render();
+  }));
+}
+
+/** Open the room display, or bring it forward if it is already open. */
+function openDisplay() {
+  if (display.win && !display.win.closed) {
+    display.win.focus();
+    return;
+  }
+  // Named, so a display left open from before a reload is reused, not doubled.
+  const win = window.open('', 'rt-room-display');
+  if (!win) {
+    throw new Error('The browser blocked the display window. Allow pop-ups for this page, '
+      + 'then try again.');
+  }
+  win.document.open();
+  win.document.write(displayShell(state.store.doc ? state.store.doc.name : 'Room display'));
+  win.document.close();
+  display.win = win;
+  refreshDisplay();
+}
+
+/** Redraw the room display from the current state. Cheap enough for every change. */
+function refreshDisplay() {
+  if (!display.win) return;
+  if (display.win.closed) {
+    display.win = null;
+    return;
+  }
+  const t = state.store.doc;
+  const body = display.win.document.body;
+  if (!t || !body) return;
+  const open = state.store.openRound();
+  const round = open ? state.store.getRound(open.id) : null;
+  body.innerHTML = displayBody({
+    tournament: t,
+    round,
+    standings: state.store.standings('overall'),
+    reading: open ? readClock(open.clock) : null,
+    mode: display.mode,
+    precision: state.store.rules.scorePrecision,
+  });
+}
+
+/** Once a second: move both clocks on, without redrawing anything else. */
+function tickClocks() {
+  if (!state.store.doc) return;
+  const open = state.store.openRound();
+  if (!open) return;
+  const reading = readClock(open.clock);
+  const el = $('#rcClock');
+  if (el) {
+    el.textContent = formatClock(reading.remainingMs);
+    el.className = `roundclock ${reading.over ? 'over' : (reading.warn ? 'warn' : '')}`;
+    const note = $('#rcNote');
+    if (note) note.textContent = clockNote(reading);
+  }
+  if (display.win && !display.win.closed) {
+    const clock = display.win.document.getElementById('clock');
+    if (clock) clock.innerHTML = clockHtml(reading);
+  }
 }
 
 /**
@@ -9010,6 +9440,9 @@ async function init() {
   }));
 
   initFieldHelp();
+
+  // The round clock, here and on the room display, moves once a second.
+  setInterval(tickClocks, 1000);
 
   $('#helpBtn').addEventListener('click', () => {
     if (state.view === 'help') { setView(hasTournament() ? 'round' : 'home'); return; }

@@ -38,6 +38,12 @@ const FIELD_HELP = {
     + 'takes the seat, and the player they replace leaves the round with no score; add '
     + 'a penalty on the Cut & finals tab if your rules give one for a missed hanchan.',
 
+  'room-display': 'A second window for a projector or a big screen: drag it there and '
+    + 'make it full screen. It shows the round clock with either where everyone sits '
+    + '(alphabetically, so players can find themselves), the standings, or the clock '
+    + 'alone, and keeps itself up to date as you work in this window. It needs this '
+    + 'window to stay open.',
+
   'sign-in': 'Tick people off as they arrive: the Here box, or type part of a name '
     + 'and press Enter when only one matches. When everyone who is coming is here, '
     + '"Withdraw the ones not signed in" marks the rest withdrawn in one go, so they '

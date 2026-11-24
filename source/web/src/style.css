@@ -192,6 +192,10 @@ table.data tr.me { background: var(--accent-soft); }
   display: block; width: 100%; font: inherit; color: var(--text);
 }
 .tcard:hover { border-color: var(--accent); box-shadow: var(--shadow); }
+.roundclock { font-family: var(--mono); font-size: 1.9rem; font-weight: 700;
+  font-variant-numeric: tabular-nums; line-height: 1; }
+.roundclock.warn { color: var(--warn); }
+.roundclock.over { color: var(--danger); }
 .tcard.free { border-style: dashed; cursor: default; color: var(--muted); }
 .tcard.free:hover { border-color: var(--border); box-shadow: none; }
 .tcard.entered { border-left-color: var(--warn); }

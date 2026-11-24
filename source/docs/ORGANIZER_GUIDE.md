@@ -153,6 +153,25 @@ are already out.
   row, the required total, and signature lines for the players and the referee.
 - **Print table numbers** once at the start of the event.
 
+### The clock and the room display
+
+The round page has a **Clock** for the round, set from *Minutes per hanchan* on
+the Setup tab. Press **Start the clock** when play begins; **Pause** and
+**Resume** if play stops, and nothing is lost. It turns amber with fifteen
+minutes left, and at zero says the hand in play finishes and no new one starts.
+Closing the round stops it.
+
+**Open the room display** for a second window to put on a projector or a big
+screen: drag it there and make it full screen. It shows the clock with one of:
+
+- **Seating** — everyone in the round alphabetically, with their table and
+  wind, so players find themselves without crowding the laptop;
+- **Standings** — the event's standings, with a line at the cut;
+- **Clock only** — the clock, as large as it will go.
+
+Choose which from the round page. The display keeps itself up to date as you
+work, and needs this window to stay open.
+
 ### 4. Play and report
 
 Players fill in the paper sheet and a referee signs it, as WRC requires. The

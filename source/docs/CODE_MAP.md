@@ -82,6 +82,10 @@ RT:FILE scoring.js
 | Question | Where |
 |---|---|
 | The whole interface | `ui.js` |
+| How much time is left in the round? | `display.js` → `clockReading()` |
+| Where is the round clock kept? | `store.js` → `startClock()`, on the round itself |
+| What does the projector show? | `display.js` → `displayBody()` |
+| Who has signed in, and withdrawing the rest | `store.js` → `withdrawAbsent()` |
 | The printable sheets | `printing.js` |
 | Help topics and the "?" text | `help.js` — plain data, no DOM |
 | The guided tutorial | `tutorial.js` — the steps and the engine |

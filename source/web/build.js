@@ -35,7 +35,7 @@ const OUTPUT_NAME = 'Mahjong-Tournament-System.html';
 // Order matters: each file leans on the ones before it via window.RT.
 const SCRIPTS = [
   'rational.js', 'scoring.js', 'seating.js', 'store.js',
-  'backup.js', 'persist.js', 'printing.js', 'discord.js', 'help.js',
+  'backup.js', 'persist.js', 'printing.js', 'discord.js', 'display.js', 'help.js',
   'testdata.js', 'tutorial.js', 'ui.js',
 ];
 

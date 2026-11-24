@@ -1065,6 +1065,58 @@ class TournamentStore {
     return this.getRound(round.id);
   }
 
+  /* ----------------------------------------------------------- the clock
+   *
+   * Each round keeps its own clock: { minutes, startedAt, elapsedMs }.
+   * startedAt is set while it runs; elapsedMs is the time banked by earlier
+   * runs, so a pause loses nothing. The length comes from Minutes per hanchan
+   * when the clock is first used. display.js reads it. */
+
+  clockFor(round) {
+    return round.clock || {
+      minutes: Number(this.require().config.hanchanMinutes) || 90,
+      startedAt: null,
+      elapsedMs: 0,
+    };
+  }
+
+  startClock(roundId, { at = Date.now() } = {}) {
+    const round = this.findRound(roundId);
+    if (round.status === 'complete') {
+      throw new StoreError('This round is closed, so its clock cannot be started.');
+    }
+    const clock = this.clockFor(round);
+    if (clock.startedAt) return this.getRound(round.id);
+    round.clock = { ...clock, startedAt: new Date(at).toISOString() };
+    this.changed('clock_started', { roundId: round.id, elapsedMs: clock.elapsedMs });
+    return this.getRound(round.id);
+  }
+
+  pauseClock(roundId, { at = Date.now() } = {}) {
+    const round = this.findRound(roundId);
+    const clock = this.clockFor(round);
+    if (!clock.startedAt) return this.getRound(round.id);
+    round.clock = {
+      ...clock,
+      startedAt: null,
+      elapsedMs: clock.elapsedMs + Math.max(0, at - Date.parse(clock.startedAt)),
+    };
+    this.changed('clock_paused', { roundId: round.id, elapsedMs: round.clock.elapsedMs });
+    return this.getRound(round.id);
+  }
+
+  /** Back to the full length, stopped. Picks up a changed Minutes per hanchan. */
+  resetClock(roundId) {
+    const round = this.findRound(roundId);
+    round.clock = {
+      minutes: Number(this.require().config.hanchanMinutes) || 90,
+      startedAt: null,
+      elapsedMs: 0,
+    };
+    this.changed('clock_reset', { roundId: round.id });
+    return this.getRound(round.id);
+  }
+
   closeRound(roundId, { force = false } = {}) {
     const detail = this.getRound(roundId);
     const round = this.findRound(roundId);
@@ -1075,6 +1127,15 @@ class TournamentStore {
       throw new StoreError(
         `These tables have no result yet: ${missing.join(', ')}. `
         + 'Enter them, or close the round anyway if they did not play.');
+    }
+    // A closed round's clock stops where it was, rather than running on.
+    if (round.clock && round.clock.startedAt) {
+      round.clock = {
+        ...round.clock,
+        startedAt: null,
+        elapsedMs: round.clock.elapsedMs
+          + Math.max(0, Date.now() - Date.parse(round.clock.startedAt)),
+      };
     }
     round.status = 'complete';
     round.closedAt = now();

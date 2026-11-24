@@ -81,7 +81,7 @@ function fillOpenRound(store, { skipTable = null } = {}) {
   const round = store.getRound(open.id);
   let filled = 0;
   for (const table of round.tables) {
-    if (table.outcome) continue;
+    if (table.outcome || table.freePlay) continue;
     if (skipTable !== null && table.tableNumber === skipTable) continue;
     const seated = table.seats.filter((s) => s.playerId !== null && s.playerId !== undefined);
     if (!seated.length) continue;

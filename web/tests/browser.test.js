@@ -222,7 +222,9 @@ test('the built file runs a whole tournament from file://', { skip: SKIP }, asyn
       await page.selectOption('#rPhase', 'final');
       await page.click('#genBtn');
       await page.waitForSelector('.tcard', { timeout: 30000 });
-      assert.equal((await page.$$('.tcard')).length, 1);
+      // The final table, and the four who missed the cut at a free-play table.
+      assert.equal((await page.$$('button.tcard')).length, 1);
+      assert.equal((await page.$$('.tcard.free')).length, 1);
     });
 
     await t.test('print views render', async () => {

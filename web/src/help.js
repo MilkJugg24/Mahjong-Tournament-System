@@ -236,8 +236,9 @@ const TOPICS = [
       <p>If two players are level across the cut line, the app <b>stops and asks you</b>
         rather than picking one. Breaking that tie is a tournament decision, and the
         rules put it in your hands.</p>
-      <p>Everyone who did not make the cut can carry on playing unranked hanchan if you
-        want the tables busy.</p>
+      <p>Everyone who did not make the cut is seated at free-play tables beside each
+        final, unless you untick that on the Cut &amp; finals tab. Those tables are
+        printed and posted like any other, but never scored.</p>
       <p>A cut can be undone if you made it too early, and the qualifying standings are
         kept separately from the finals throughout.</p>`,
   },

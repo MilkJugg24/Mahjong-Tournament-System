@@ -105,7 +105,7 @@ function seatingPage(tournament, round) {
   for (const table of round.tables) {
     for (const seat of table.seats) {
       rows.push('<tr>'
-        + `<td class="num">${table.tableNumber}</td>`
+        + `<td class="num">${table.tableNumber}${table.freePlay ? ' (free play)' : ''}</td>`
         + `<td class="wind">${esc(SEAT_WINDS[seat.seatIndex] ?? '?')}</td>`
         + `<td>${esc(seat.name || '(empty seat)')}</td>`
         + `<td>${esc(seat.club)}</td>`
@@ -120,16 +120,19 @@ function seatingPage(tournament, round) {
   const lookup = [];
   for (const table of round.tables) {
     for (const seat of table.seats) {
-      if (seat.name) lookup.push([seat.name, table.tableNumber, seat.seatIndex]);
+      if (seat.name) {
+        lookup.push([seat.name, table.tableNumber, seat.seatIndex, Boolean(table.freePlay)]);
+      }
     }
   }
-  for (const bye of round.byes) lookup.push([bye.name, null, null]);
+  for (const bye of round.byes) lookup.push([bye.name, null, null, false]);
   lookup.sort((a, b) => a[0].toLowerCase().localeCompare(b[0].toLowerCase()));
 
-  const alpha = lookup.map(([name, tableNumber, seatIndex]) => {
+  const alpha = lookup.map(([name, tableNumber, seatIndex, freePlay]) => {
     const where = tableNumber === null
       ? 'Sitting out this hanchan'
-      : `Table ${tableNumber}, ${SEAT_WIND_NAMES[SEAT_WINDS[seatIndex]]}`;
+      : `Table ${tableNumber}${freePlay ? ' (free play)' : ''}, `
+        + `${SEAT_WIND_NAMES[SEAT_WINDS[seatIndex]]}`;
     return `<tr><td>${esc(name)}</td><td>${esc(where)}</td></tr>`;
   }).join('');
   const byName = '<h2>By player</h2><table><thead><tr><th>Player</th><th>Seat</th>'
@@ -282,8 +285,10 @@ function printPage(store, kind, { roundId = null, scope = 'overall' } = {}) {
   if (kind === 'seating') {
     return shell(`${tournament.name} seating`, seatingPage(tournament, round));
   }
+  // Free-play tables have nothing to report, so they get no sheet.
   return shell(`${tournament.name} report sheets`,
-    round.tables.map((t) => scoreSheet(tournament, rules, round, t)).join(''));
+    round.tables.filter((t) => !t.freePlay)
+      .map((t) => scoreSheet(tournament, rules, round, t)).join(''));
 }
 
 /** Open a printable page in a new window. */

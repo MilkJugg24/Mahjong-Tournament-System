@@ -841,6 +841,10 @@ function renderRound() {
   $('#roundTitle').textContent = rnd.label;
   $('#roundLede').innerHTML = `${reported} of ${total} tables reported`
     + (rnd.phase === 'final' ? ' &middot; finals' : '')
+    + (rnd.freePlayTables
+      ? ` &middot; ${rnd.freePlayTables} free-play table${rnd.freePlayTables === 1 ? '' : 's'},`
+        + ' not scored'
+      : '')
     + (rnd.phase === 'free_play' ? ' &middot; not scored' : '');
 
   const byes = rnd.byes.length
@@ -873,6 +877,10 @@ function renderRound() {
 
   ${byes}
 
+  ${rnd.freePlayOut && rnd.freePlayOut.length ? `<div class="card"><h3>Not seated for free play</h3>
+    <p>${rnd.freePlayOut.map((p) => esc(p.name)).join(', ')}
+      <span class="muted small">&mdash; too few left over to make up another table.</span></p></div>` : ''}
+
   ${moveCard(rnd)}
 
   <div class="card">
@@ -892,7 +900,7 @@ function renderRound() {
 
   ${renderRoundHistory(rounds)}`;
 
-  $$('#tableGrid .tcard').forEach((card) =>
+  $$('#tableGrid button.tcard').forEach((card) =>
     card.addEventListener('click', () => openEntry(num(card.dataset.table))));
   $$('[data-print]').forEach((b) => b.addEventListener('click', () =>
     guard(() => openPrintWindow(
@@ -970,7 +978,6 @@ function moveCard(rnd) {
     present.add(b.playerId);
     inRound.push([b.playerId, `Sitting out · ${b.name}`]);
   }
-  for (const id of rnd.freePlayOut || []) present.add(id);
   const outside = state.store.playingPlayers()
     .filter((p) => !present.has(p.id))
     .map((p) => [p.id, `${p.name}${p.role === 'sit_in' ? ' (sit-in)' : ''}`]);
@@ -995,6 +1002,15 @@ function moveCard(rnd) {
 }
 
 function tableCard(table) {
+  if (table.freePlay) {
+    // Seated and printed like any table, but there is nothing to enter.
+    return `<div class="tcard free" data-table="${table.tableNumber}">
+      <div class="thead"><span class="tnum">Table ${table.tableNumber}</span>
+        <span class="chip">free play</span></div>
+      <ul>${table.seats.map((s) => `<li><span class="w">${esc(WINDS[s.seatIndex] || '?')}</span>`
+        + `<span class="nm">${esc(s.name || '')}</span></li>`).join('')}</ul>
+    </div>`;
+  }
   const chip = table.status === 'verified'
     ? '<span class="chip ok">verified</span>'
     : table.status === 'entered'
@@ -1411,11 +1427,16 @@ function renderFinals() {
           <option value="full"${sel(cut.carry, 'full')}>Carry the full score</option>
           <option value="half"${sel(cut.carry, 'half')}>Carry half</option>
         </select></label>
+      <label class="field check" style="grid-column:1/-1">
+        <span><input type="checkbox" id="cFree"${cut.freePlayForRest !== false ? ' checked' : ''}>
+          Seat everyone else at free-play tables during each final</span>
+        <span class="hint">They are seated and printed with the final, but not scored.
+          This can be changed after the cut too.</span>
+      </label>
     </div>
     <div class="btnrow">
       <button class="primary big" id="cutBtn"${cut.applied || openRound ? ' disabled' : ''}>
         ${cut.applied ? 'Cut already made' : 'Make the cut'}</button>
-      <span class="small muted">Everyone else can be given free-play tables from the round tab.</span>
     </div>
   </div>
   ${qualifiedHtml}
@@ -1451,7 +1472,10 @@ function renderFinals() {
   $('#cutBtn').addEventListener('click', () => guard(() => {
     const size = num($('#cSize').value);
     state.store.applyCut({
-      size, rounds: num($('#cRounds').value), carry: $('#cCarry').value,
+      size,
+      rounds: num($('#cRounds').value),
+      carry: $('#cCarry').value,
+      freePlayForRest: $('#cFree').checked,
     });
     loadTournaments().then(render);
     render();
@@ -1459,6 +1483,19 @@ function renderFinals() {
     toast(`Cut made: top ${size} go through.`
       + (skipped ? ` ${skipped} withdrawn player${skipped === 1 ? ' was' : 's were'} passed over.` : ''));
   }));
+
+  // Before the cut the box is read when the cut is made; after it, a change
+  // applies from the next final drawn.
+  $('#cFree').addEventListener('change', () => {
+    if (!cut.applied) return;
+    guard(() => {
+      const on = $('#cFree').checked;
+      state.store.update({ config: { cut: { freePlayForRest: on } } });
+      toast(on
+        ? 'The next final will seat everyone else at free-play tables.'
+        : 'The next final will seat the finalists only.');
+    });
+  });
 
   const undo = $('#undoCut');
   if (undo) {

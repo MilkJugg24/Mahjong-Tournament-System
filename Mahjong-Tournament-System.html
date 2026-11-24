@@ -14,18 +14,18 @@
     below, each behind a banner you can search for. The guide to the code
     is docs/CODE_MAP.md in the repository.
 
-    RT:FILE rational.js  line    812  Exact rational arithmetic.  <-- the arithmetic
-    RT:FILE scoring.js   line   1040  Scoring engine -- World Riichi Championship 2025.  <-- the arithmetic
-    RT:FILE seating.js   line   1807  Seating and pairing engine.
-    RT:FILE store.js     line   2447  Tournament operations -- the layer the interface sits on.
-    RT:FILE backup.js    line   3752  Backups: the CSV files, the folder on disk, and restore points.
-    RT:FILE persist.js   line   4487  The working copy: IndexedDB.
-    RT:FILE printing.js  line   4724  Printable pages.
-    RT:FILE discord.js   line   5039  Posting pairings and standings to a Discord channel.
-    RT:FILE help.js      line   5293  Help content: the help page, and the text behind every "?" bubble.
-    RT:FILE testdata.js  line   5586  Made-up rosters and made-up scores, for trying the program out.
-    RT:FILE tutorial.js  line   5712  The guided tutorial: a demo tournament that plays itself while ...
-    RT:FILE ui.js        line   6178  The browser interface.
+    RT:FILE rational.js  line    814  Exact rational arithmetic.  <-- the arithmetic
+    RT:FILE scoring.js   line   1042  Scoring engine -- World Riichi Championship 2025.  <-- the arithmetic
+    RT:FILE seating.js   line   1809  Seating and pairing engine.
+    RT:FILE store.js     line   2449  Tournament operations -- the layer the interface sits on.
+    RT:FILE backup.js    line   3806  Backups: the CSV files, the folder on disk, and restore points.
+    RT:FILE persist.js   line   4543  The working copy: IndexedDB.
+    RT:FILE printing.js  line   4780  Printable pages.
+    RT:FILE discord.js   line   5100  Posting pairings and standings to a Discord channel.
+    RT:FILE help.js      line   5355  Help content: the help page, and the text behind every "?" bubble.
+    RT:FILE testdata.js  line   5649  Made-up rosters and made-up scores, for trying the program out.
+    RT:FILE tutorial.js  line   5775  The guided tutorial: a demo tournament that plays itself while ...
+    RT:FILE ui.js        line   6242  The browser interface.
 
     To check how a score was worked out, read scoring.js: the formula is
     written out at the top of it, and rational.js is the exact arithmetic
@@ -235,6 +235,8 @@ table.data tr.me { background: var(--accent-soft); }
   display: block; width: 100%; font: inherit; color: var(--text);
 }
 .tcard:hover { border-color: var(--accent); box-shadow: var(--shadow); }
+.tcard.free { border-style: dashed; cursor: default; color: var(--muted); }
+.tcard.free:hover { border-color: var(--border); box-shadow: none; }
 .tcard.entered { border-left-color: var(--warn); }
 .tcard.verified { border-left-color: var(--ok); }
 .tcard .thead { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; gap: 8px; }
@@ -2933,6 +2935,43 @@ class TournamentStore {
       });
     }
 
+    // Everyone who missed the cut plays at free-play tables alongside each
+    // final: seated, printed and posted like any other table, never scored.
+    // Only one round can be open at a time, so a separate free-play round
+    // could not run beside a final -- this is the only way the two coexist.
+    let free = null;
+    let freeOut = [];
+    if (phase === 'final' && playerIds === null
+        && (t.config.cut || {}).freePlayForRest !== false) {
+      const through = new Set(ids);
+      const rest = this.withSitInsAsNeeded(
+        this.playingPlayers().filter((p) => !through.has(p.id)));
+      if (rest.length >= ppt) {
+        free = generateSeating(rest.map((p) => p.id), history, {
+          ...searchOptions,
+          clubs: new Map(rest.map((p) => [p.id, p.club || ''])),
+          seed: actualSeed + 1,
+          firstTableNumber: plan.firstTableNumber + plan.tables.length,
+        });
+        freeOut = free.byes;
+      } else {
+        freeOut = rest.map((p) => p.id);
+      }
+    }
+
+    const tableDoc = (tableNumber, seats, freePlay) => ({
+      tableNumber,
+      riichiLeft: 0,
+      status: 'pending',
+      enteredBy: '',
+      verifiedBy: '',
+      lobby: '',
+      updatedAt: now(),
+      seats: seats.map((playerId, seatIndex) => ({ seatIndex, playerId })),
+      results: {},
+      ...(freePlay ? { freePlay: true } : {}),
+    });
+
     const byeValues = this.byeScoresFor(plan.byes);
     const round = {
       id: t.nextRoundId++,
@@ -2944,18 +2983,13 @@ class TournamentStore {
       seed: actualSeed,
       createdAt: now(),
       closedAt: null,
-      tables: plan.numberedTables().map(({ tableNumber, seats }) => ({
-        tableNumber,
-        riichiLeft: 0,
-        status: 'pending',
-        enteredBy: '',
-        verifiedBy: '',
-        lobby: '',
-        updatedAt: now(),
-        seats: seats.map((playerId, seatIndex) => ({ seatIndex, playerId })),
-        results: {},
-      })),
+      tables: plan.numberedTables()
+        .map(({ tableNumber, seats }) => tableDoc(tableNumber, seats, false))
+        .concat(free
+          ? free.numberedTables().map(({ tableNumber, seats }) => tableDoc(tableNumber, seats, true))
+          : []),
       byes: plan.byes.map((playerId) => ({ playerId, score: byeValues[playerId] })),
+      ...(phase === 'final' ? { freePlayOut: freeOut } : {}),
     };
     t.rounds.push(round);
     if (t.status === 'setup') t.status = 'running';
@@ -2964,7 +2998,8 @@ class TournamentStore {
       roundId: round.id,
       number: round.number,
       phase,
-      tables: round.tables.length,
+      tables: round.tables.filter((tb) => !tb.freePlay).length,
+      freePlayTables: round.tables.filter((tb) => tb.freePlay).length,
       byes: plan.byes,
       seed: actualSeed,
       method: chosen,
@@ -3012,6 +3047,8 @@ class TournamentStore {
         };
       });
 
+    // Free-play tables are not scored, so they count towards nothing here.
+    const scored = tables.filter((x) => !x.freePlay);
     return {
       ...round,
       tables,
@@ -3020,8 +3057,12 @@ class TournamentStore {
         name: (names.get(b.playerId) || {}).name || '?',
         score: b.score,
       })),
-      tablesTotal: tables.length,
-      tablesReported: tables.filter((x) => ['entered', 'verified'].includes(x.status)).length,
+      freePlayOut: (round.freePlayOut || []).map((id) => ({
+        playerId: id, name: (names.get(id) || {}).name || '?',
+      })),
+      tablesTotal: scored.length,
+      tablesReported: scored.filter((x) => ['entered', 'verified'].includes(x.status)).length,
+      freePlayTables: tables.length - scored.length,
     };
   }
 
@@ -3203,6 +3244,9 @@ class TournamentStore {
     const rules = this.rules;
     const table = round.tables.find((x) => x.tableNumber === Number(tableNumber));
     if (!table) throw new StoreError(`Table ${tableNumber} does not exist in this round.`);
+    if (table.freePlay) {
+      throw new StoreError(`Table ${tableNumber} is a free-play table, which is not scored.`);
+    }
     const seatOf = new Map(table.seats.filter((s) => s.playerId !== null)
       .map((s) => [s.playerId, s.seatIndex]));
     const names = new Map(t.players.map((p) => [p.id, p.name]));
@@ -3261,6 +3305,9 @@ class TournamentStore {
     const rules = this.rules;
     const table = round.tables.find((x) => x.tableNumber === Number(tableNumber));
     if (!table) throw new StoreError(`Table ${tableNumber} does not exist in this round.`);
+    if (table.freePlay) {
+      throw new StoreError(`Table ${tableNumber} is a free-play table, which is not scored.`);
+    }
     const seatOf = new Map(table.seats.filter((s) => s.playerId !== null)
       .map((s) => [s.playerId, s.seatIndex]));
 
@@ -3327,6 +3374,9 @@ class TournamentStore {
     const round = this.findRound(roundId);
     const table = round.tables.find((x) => x.tableNumber === Number(tableNumber));
     if (!table) throw new StoreError(`Table ${tableNumber} does not exist in this round.`);
+    if (table.freePlay) {
+      throw new StoreError(`Table ${tableNumber} is a free-play table, which is not scored.`);
+    }
     table.results = {};
     table.riichiLeft = 0;
     table.overridden = false;
@@ -3342,6 +3392,9 @@ class TournamentStore {
     const round = this.findRound(roundId);
     const table = round.tables.find((x) => x.tableNumber === Number(tableNumber));
     if (!table) throw new StoreError(`Table ${tableNumber} does not exist in this round.`);
+    if (table.freePlay) {
+      throw new StoreError(`Table ${tableNumber} is a free-play table, which is not scored.`);
+    }
     if (table.status === 'pending') {
       throw new StoreError("Enter the table's scores before verifying it.");
     }
@@ -3358,7 +3411,7 @@ class TournamentStore {
     const detail = this.getRound(roundId);
     const round = this.findRound(roundId);
     const missing = detail.tables
-      .filter((t) => !['entered', 'verified'].includes(t.status))
+      .filter((t) => !t.freePlay && !['entered', 'verified'].includes(t.status))
       .map((t) => t.tableNumber);
     if (missing.length && !force) {
       throw new StoreError(
@@ -3511,6 +3564,7 @@ class TournamentStore {
     for (const round of this.listRounds()) {
       if (!phases.includes(round.phase)) continue;
       for (const table of round.tables) {
+        if (table.freePlay) continue;
         const entries = Object.entries(table.results || {});
         if (entries.length !== rules.playersPerTable) continue;
         const seatOf = new Map(table.seats.filter((s) => s.playerId !== null)
@@ -3879,7 +3933,9 @@ function seatingRows(details) {
   for (const r of details) {
     for (const table of r.tables) {
       for (const seat of table.seats) {
-        rows.push([r.number, r.phase, r.label, table.tableNumber, seat.seatIndex,
+        // A free-play table inside a final round is not part of the final.
+        rows.push([r.number, table.freePlay ? 'free_play' : r.phase, r.label,
+          table.tableNumber, seat.seatIndex,
           wind(seat.seatIndex), seat.playerId ?? '', seat.name || '(empty)',
           seat.club, table.lobby || '']);
       }
@@ -4830,7 +4886,7 @@ function seatingPage(tournament, round) {
   for (const table of round.tables) {
     for (const seat of table.seats) {
       rows.push('<tr>'
-        + `<td class="num">${table.tableNumber}</td>`
+        + `<td class="num">${table.tableNumber}${table.freePlay ? ' (free play)' : ''}</td>`
         + `<td class="wind">${esc(SEAT_WINDS[seat.seatIndex] ?? '?')}</td>`
         + `<td>${esc(seat.name || '(empty seat)')}</td>`
         + `<td>${esc(seat.club)}</td>`
@@ -4845,16 +4901,19 @@ function seatingPage(tournament, round) {
   const lookup = [];
   for (const table of round.tables) {
     for (const seat of table.seats) {
-      if (seat.name) lookup.push([seat.name, table.tableNumber, seat.seatIndex]);
+      if (seat.name) {
+        lookup.push([seat.name, table.tableNumber, seat.seatIndex, Boolean(table.freePlay)]);
+      }
     }
   }
-  for (const bye of round.byes) lookup.push([bye.name, null, null]);
+  for (const bye of round.byes) lookup.push([bye.name, null, null, false]);
   lookup.sort((a, b) => a[0].toLowerCase().localeCompare(b[0].toLowerCase()));
 
-  const alpha = lookup.map(([name, tableNumber, seatIndex]) => {
+  const alpha = lookup.map(([name, tableNumber, seatIndex, freePlay]) => {
     const where = tableNumber === null
       ? 'Sitting out this hanchan'
-      : `Table ${tableNumber}, ${SEAT_WIND_NAMES[SEAT_WINDS[seatIndex]]}`;
+      : `Table ${tableNumber}${freePlay ? ' (free play)' : ''}, `
+        + `${SEAT_WIND_NAMES[SEAT_WINDS[seatIndex]]}`;
     return `<tr><td>${esc(name)}</td><td>${esc(where)}</td></tr>`;
   }).join('');
   const byName = '<h2>By player</h2><table><thead><tr><th>Player</th><th>Seat</th>'
@@ -5007,8 +5066,10 @@ function printPage(store, kind, { roundId = null, scope = 'overall' } = {}) {
   if (kind === 'seating') {
     return shell(`${tournament.name} seating`, seatingPage(tournament, round));
   }
+  // Free-play tables have nothing to report, so they get no sheet.
   return shell(`${tournament.name} report sheets`,
-    round.tables.map((t) => scoreSheet(tournament, rules, round, t)).join(''));
+    round.tables.filter((t) => !t.freePlay)
+      .map((t) => scoreSheet(tournament, rules, round, t)).join(''));
 }
 
 /** Open a printable page in a new window. */
@@ -5125,7 +5186,8 @@ function pairingsMessage(tournament, round, { note = '' } = {}) {
   const dropped = tables.length - shown.length;
 
   const fields = shown.map((t) => ({
-    name: fit(`Table ${t.tableNumber}${t.lobby ? ` · ${t.lobby}` : ''}`, LIMITS.fieldName),
+    name: fit(`Table ${t.tableNumber}${t.freePlay ? ' · free play' : ''}`
+      + `${t.lobby ? ` · ${t.lobby}` : ''}`, LIMITS.fieldName),
     value: fit(
       t.seats
         .filter((s) => s.playerId !== null && s.playerId !== undefined)
@@ -5530,8 +5592,9 @@ const TOPICS = [
       <p>If two players are level across the cut line, the app <b>stops and asks you</b>
         rather than picking one. Breaking that tie is a tournament decision, and the
         rules put it in your hands.</p>
-      <p>Everyone who did not make the cut can carry on playing unranked hanchan if you
-        want the tables busy.</p>
+      <p>Everyone who did not make the cut is seated at free-play tables beside each
+        final, unless you untick that on the Cut &amp; finals tab. Those tables are
+        printed and posted like any other, but never scored.</p>
       <p>A cut can be undone if you made it too early, and the qualifying standings are
         kept separately from the finals throughout.</p>`,
   },
@@ -5668,7 +5731,7 @@ function fillOpenRound(store, { skipTable = null } = {}) {
   const round = store.getRound(open.id);
   let filled = 0;
   for (const table of round.tables) {
-    if (table.outcome) continue;
+    if (table.outcome || table.freePlay) continue;
     if (skipTable !== null && table.tableNumber === skipTable) continue;
     const seated = table.seats.filter((s) => s.playerId !== null && s.playerId !== undefined);
     if (!seated.length) continue;
@@ -5985,8 +6048,8 @@ Player 02, Club B</pre>
         over, or half of it; the "?" next to that setting explains the difference.</p>
       <p>Had two players been level across the cut line, the app would have refused to
         guess and asked you to settle it.</p>
-      <p>Everyone who did not make the cut can keep playing unranked hanchan if you
-        want the tables busy.</p>`,
+      <p>Everyone who did not make the cut is seated at free-play tables beside the
+        final, so the room keeps playing. Those tables are not scored.</p>`,
     run: ({ store }) => { store.applyCut({ size: 4, rounds: 1, carry: 'reset' }); },
   },
   {
@@ -5997,11 +6060,12 @@ Player 02, Club B</pre>
     show: { fill: '#finalsBody table.data tbody tr' },
     body: `
       <p>The final hanchan has been drawn, played and closed, exactly like a
-        qualifying round.</p>
+        qualifying round, with everyone else at free-play tables beside it.</p>
       <p>The standings tabs keep the two phases apart: <b>Qualifying</b> is how the
-        cut was decided and never changes afterwards, <b>Finals</b> is the final table
-        alone, and <b>Overall</b> is everything together. Your winner is top of the
-        finals table.</p>`,
+        cut was decided and never changes afterwards, and <b>Finals</b> is the final
+        table alone. <b>Overall</b> is how the event finished: the finalists in their
+        finals order, then everyone else by qualifying score. Your winner is top of
+        both Finals and Overall.</p>`,
     run: ({ store }) => { playRounds(store, 1, 'final'); },
   },
   {
@@ -7020,6 +7084,10 @@ function renderRound() {
   $('#roundTitle').textContent = rnd.label;
   $('#roundLede').innerHTML = `${reported} of ${total} tables reported`
     + (rnd.phase === 'final' ? ' &middot; finals' : '')
+    + (rnd.freePlayTables
+      ? ` &middot; ${rnd.freePlayTables} free-play table${rnd.freePlayTables === 1 ? '' : 's'},`
+        + ' not scored'
+      : '')
     + (rnd.phase === 'free_play' ? ' &middot; not scored' : '');
 
   const byes = rnd.byes.length
@@ -7052,6 +7120,10 @@ function renderRound() {
 
   ${byes}
 
+  ${rnd.freePlayOut && rnd.freePlayOut.length ? `<div class="card"><h3>Not seated for free play</h3>
+    <p>${rnd.freePlayOut.map((p) => esc(p.name)).join(', ')}
+      <span class="muted small">&mdash; too few left over to make up another table.</span></p></div>` : ''}
+
   ${moveCard(rnd)}
 
   <div class="card">
@@ -7071,7 +7143,7 @@ function renderRound() {
 
   ${renderRoundHistory(rounds)}`;
 
-  $$('#tableGrid .tcard').forEach((card) =>
+  $$('#tableGrid button.tcard').forEach((card) =>
     card.addEventListener('click', () => openEntry(num(card.dataset.table))));
   $$('[data-print]').forEach((b) => b.addEventListener('click', () =>
     guard(() => openPrintWindow(
@@ -7149,7 +7221,6 @@ function moveCard(rnd) {
     present.add(b.playerId);
     inRound.push([b.playerId, `Sitting out · ${b.name}`]);
   }
-  for (const id of rnd.freePlayOut || []) present.add(id);
   const outside = state.store.playingPlayers()
     .filter((p) => !present.has(p.id))
     .map((p) => [p.id, `${p.name}${p.role === 'sit_in' ? ' (sit-in)' : ''}`]);
@@ -7174,6 +7245,15 @@ function moveCard(rnd) {
 }
 
 function tableCard(table) {
+  if (table.freePlay) {
+    // Seated and printed like any table, but there is nothing to enter.
+    return `<div class="tcard free" data-table="${table.tableNumber}">
+      <div class="thead"><span class="tnum">Table ${table.tableNumber}</span>
+        <span class="chip">free play</span></div>
+      <ul>${table.seats.map((s) => `<li><span class="w">${esc(WINDS[s.seatIndex] || '?')}</span>`
+        + `<span class="nm">${esc(s.name || '')}</span></li>`).join('')}</ul>
+    </div>`;
+  }
   const chip = table.status === 'verified'
     ? '<span class="chip ok">verified</span>'
     : table.status === 'entered'
@@ -7590,11 +7670,16 @@ function renderFinals() {
           <option value="full"${sel(cut.carry, 'full')}>Carry the full score</option>
           <option value="half"${sel(cut.carry, 'half')}>Carry half</option>
         </select></label>
+      <label class="field check" style="grid-column:1/-1">
+        <span><input type="checkbox" id="cFree"${cut.freePlayForRest !== false ? ' checked' : ''}>
+          Seat everyone else at free-play tables during each final</span>
+        <span class="hint">They are seated and printed with the final, but not scored.
+          This can be changed after the cut too.</span>
+      </label>
     </div>
     <div class="btnrow">
       <button class="primary big" id="cutBtn"${cut.applied || openRound ? ' disabled' : ''}>
         ${cut.applied ? 'Cut already made' : 'Make the cut'}</button>
-      <span class="small muted">Everyone else can be given free-play tables from the round tab.</span>
     </div>
   </div>
   ${qualifiedHtml}
@@ -7630,7 +7715,10 @@ function renderFinals() {
   $('#cutBtn').addEventListener('click', () => guard(() => {
     const size = num($('#cSize').value);
     state.store.applyCut({
-      size, rounds: num($('#cRounds').value), carry: $('#cCarry').value,
+      size,
+      rounds: num($('#cRounds').value),
+      carry: $('#cCarry').value,
+      freePlayForRest: $('#cFree').checked,
     });
     loadTournaments().then(render);
     render();
@@ -7638,6 +7726,19 @@ function renderFinals() {
     toast(`Cut made: top ${size} go through.`
       + (skipped ? ` ${skipped} withdrawn player${skipped === 1 ? ' was' : 's were'} passed over.` : ''));
   }));
+
+  // Before the cut the box is read when the cut is made; after it, a change
+  // applies from the next final drawn.
+  $('#cFree').addEventListener('change', () => {
+    if (!cut.applied) return;
+    guard(() => {
+      const on = $('#cFree').checked;
+      state.store.update({ config: { cut: { freePlayForRest: on } } });
+      toast(on
+        ? 'The next final will seat everyone else at free-play tables.'
+        : 'The next final will seat the finalists only.');
+    });
+  });
 
   const undo = $('#undoCut');
   if (undo) {

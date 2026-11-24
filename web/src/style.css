@@ -192,6 +192,8 @@ table.data tr.me { background: var(--accent-soft); }
   display: block; width: 100%; font: inherit; color: var(--text);
 }
 .tcard:hover { border-color: var(--accent); box-shadow: var(--shadow); }
+.tcard.free { border-style: dashed; cursor: default; color: var(--muted); }
+.tcard.free:hover { border-color: var(--border); box-shadow: none; }
 .tcard.entered { border-left-color: var(--warn); }
 .tcard.verified { border-left-color: var(--ok); }
 .tcard .thead { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; gap: 8px; }

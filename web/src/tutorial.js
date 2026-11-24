@@ -272,8 +272,8 @@ Player 02, Club B</pre>
         over, or half of it; the "?" next to that setting explains the difference.</p>
       <p>Had two players been level across the cut line, the app would have refused to
         guess and asked you to settle it.</p>
-      <p>Everyone who did not make the cut can keep playing unranked hanchan if you
-        want the tables busy.</p>`,
+      <p>Everyone who did not make the cut is seated at free-play tables beside the
+        final, so the room keeps playing. Those tables are not scored.</p>`,
     run: ({ store }) => { store.applyCut({ size: 4, rounds: 1, carry: 'reset' }); },
   },
   {
@@ -284,11 +284,12 @@ Player 02, Club B</pre>
     show: { fill: '#finalsBody table.data tbody tr' },
     body: `
       <p>The final hanchan has been drawn, played and closed, exactly like a
-        qualifying round.</p>
+        qualifying round, with everyone else at free-play tables beside it.</p>
       <p>The standings tabs keep the two phases apart: <b>Qualifying</b> is how the
-        cut was decided and never changes afterwards, <b>Finals</b> is the final table
-        alone, and <b>Overall</b> is everything together. Your winner is top of the
-        finals table.</p>`,
+        cut was decided and never changes afterwards, and <b>Finals</b> is the final
+        table alone. <b>Overall</b> is how the event finished: the finalists in their
+        finals order, then everyone else by qualifying score. Your winner is top of
+        both Finals and Overall.</p>`,
     run: ({ store }) => { playRounds(store, 1, 'final'); },
   },
   {

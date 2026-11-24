@@ -23,6 +23,7 @@ function addPlayers(store, n) {
 function playRound(store, roundId, scores = [45000, 32000, 25000, 18000], riichi = 0) {
   const round = store.getRound(roundId);
   for (const table of round.tables) {
+    if (table.freePlay) continue;
     const seats = table.seats.filter((s) => s.playerId);
     store.saveTable(roundId, table.tableNumber,
       seats.map((s, i) => ({ playerId: s.playerId, rawScore: scores[i] })),
@@ -622,7 +623,9 @@ test('finals reset points', () => {
   store.closeRound(round.id);
   store.applyCut({ size: 4, carry: 'reset', rounds: 1 });
   const final = store.generateRound({ phase: 'final' });
-  assert.equal(final.tables.length, 1);
+  // One final table; the other four play free play beside it.
+  assert.equal(final.tables.filter((t) => !t.freePlay).length, 1);
+  assert.equal(final.tables.filter((t) => t.freePlay).length, 1);
   playRound(store, final.id);
   store.closeRound(final.id);
   const finals = store.standings('final');
@@ -696,6 +699,84 @@ test('standings.csv says which stage each score comes from', () => {
   const stage = rows[0].indexOf('stage');
   assert.equal(rows[1][stage], 'final');
   assert.equal(rows[rows.length - 1][stage], 'qualifying');
+});
+
+/* `n` players through one qualifying round with no two level, then cut to 4. */
+function cutField(n, { freePlayForRest = true } = {}) {
+  const store = newStore();
+  addPlayers(store, n);
+  const round = store.generateRound();
+  const base = [[45000, 32000, 25000, 18000], [40000, 31000, 26000, 23000],
+    [42000, 33000, 24000, 21000], [39000, 34000, 27000, 20000]];
+  for (const [i, table] of store.getRound(round.id).tables.entries()) {
+    store.saveTable(round.id, table.tableNumber, table.seats.filter((s) => s.playerId)
+      .map((s, k) => ({ playerId: s.playerId, rawScore: base[i % base.length][k] })));
+  }
+  store.closeRound(round.id, { force: true });
+  store.applyCut({ size: 4, carry: 'reset', rounds: 2, freePlayForRest });
+  return store;
+}
+
+test('everyone who missed the cut plays free play alongside the final', () => {
+  const store = cutField(12);
+  const final = store.generateRound({ phase: 'final' });
+  const finalists = new Set(store.doc.config.cut.qualified);
+  const scored = final.tables.filter((t) => !t.freePlay);
+  const free = final.tables.filter((t) => t.freePlay);
+  assert.equal(scored.length, 1);
+  assert.equal(free.length, 2);
+  assert.ok(scored[0].seats.every((s) => finalists.has(s.playerId)));
+  assert.ok(free.every((t) => t.seats.every((s) => !finalists.has(s.playerId))));
+  assert.deepEqual(final.tables.map((t) => t.tableNumber), [1, 2, 3]);
+  assert.equal(final.tablesTotal, 1, 'free play does not count as a table to report');
+});
+
+test('free-play tables are not scored, and do not hold up the final', () => {
+  const store = cutField(12);
+  const final = store.generateRound({ phase: 'final' });
+  const freeTable = final.tables.find((t) => t.freePlay);
+  assert.throws(() => store.saveTable(final.id, freeTable.tableNumber,
+    freeTable.seats.map((s, i) => ({ playerId: s.playerId, rawScore: [45000, 32000, 25000, 18000][i] }))),
+  /free-play table/);
+  playRound(store, final.id);
+  store.closeRound(final.id);
+  assert.equal(store.standings('final').length, 4);
+  assert.ok(store.standings('qualifying').every((s) => s.hanchanPlayed === 1),
+    'free play adds nothing to anyone');
+});
+
+test('free play can be switched off', () => {
+  const store = cutField(12, { freePlayForRest: false });
+  const final = store.generateRound({ phase: 'final' });
+  assert.equal(final.tables.length, 1);
+  assert.ok(!final.tables.some((t) => t.freePlay));
+});
+
+test('players left over from free play are listed, not given a bye', () => {
+  const store = cutField(10);
+  const final = store.generateRound({ phase: 'final' });
+  assert.equal(final.tables.filter((t) => t.freePlay).length, 1);
+  assert.equal(final.freePlayOut.length, 2);
+  assert.equal(final.byes.length, 0);
+});
+
+test('a finalist cannot be moved onto a free-play table', () => {
+  const store = cutField(12);
+  const final = store.generateRound({ phase: 'final' });
+  const finalist = final.tables.find((t) => !t.freePlay).seats[0].playerId;
+  const freePlayer = final.tables.find((t) => t.freePlay).seats[0].playerId;
+  assert.throws(() => store.swapSeats(final.id, finalist, freePlayer), /in the final/);
+});
+
+test('seating.csv marks the free-play rows of a final', () => {
+  const { buildAll } = require('../src/backup.js');
+  const store = cutField(12);
+  store.generateRound({ phase: 'final' });
+  const rows = buildAll(store)['seating.csv'];
+  const phase = rows[0].indexOf('phase');
+  const finalRows = rows.slice(1).filter((r) => r[0] === 2);
+  assert.equal(finalRows.filter((r) => r[phase] === 'final').length, 4);
+  assert.equal(finalRows.filter((r) => r[phase] === 'free_play').length, 8);
 });
 
 test('cannot undo a cut once finals are seated', () => {

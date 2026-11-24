@@ -126,7 +126,9 @@ function seatingRows(details) {
   for (const r of details) {
     for (const table of r.tables) {
       for (const seat of table.seats) {
-        rows.push([r.number, r.phase, r.label, table.tableNumber, seat.seatIndex,
+        // A free-play table inside a final round is not part of the final.
+        rows.push([r.number, table.freePlay ? 'free_play' : r.phase, r.label,
+          table.tableNumber, seat.seatIndex,
           wind(seat.seatIndex), seat.playerId ?? '', seat.name || '(empty)',
           seat.club, table.lobby || '']);
       }

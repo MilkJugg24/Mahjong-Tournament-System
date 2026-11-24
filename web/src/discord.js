@@ -85,7 +85,8 @@ function pairingsMessage(tournament, round, { note = '' } = {}) {
   const dropped = tables.length - shown.length;
 
   const fields = shown.map((t) => ({
-    name: fit(`Table ${t.tableNumber}${t.lobby ? ` · ${t.lobby}` : ''}`, LIMITS.fieldName),
+    name: fit(`Table ${t.tableNumber}${t.freePlay ? ' · free play' : ''}`
+      + `${t.lobby ? ` · ${t.lobby}` : ''}`, LIMITS.fieldName),
     value: fit(
       t.seats
         .filter((s) => s.playerId !== null && s.playerId !== undefined)

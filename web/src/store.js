@@ -485,6 +485,43 @@ class TournamentStore {
       });
     }
 
+    // Everyone who missed the cut plays at free-play tables alongside each
+    // final: seated, printed and posted like any other table, never scored.
+    // Only one round can be open at a time, so a separate free-play round
+    // could not run beside a final -- this is the only way the two coexist.
+    let free = null;
+    let freeOut = [];
+    if (phase === 'final' && playerIds === null
+        && (t.config.cut || {}).freePlayForRest !== false) {
+      const through = new Set(ids);
+      const rest = this.withSitInsAsNeeded(
+        this.playingPlayers().filter((p) => !through.has(p.id)));
+      if (rest.length >= ppt) {
+        free = generateSeating(rest.map((p) => p.id), history, {
+          ...searchOptions,
+          clubs: new Map(rest.map((p) => [p.id, p.club || ''])),
+          seed: actualSeed + 1,
+          firstTableNumber: plan.firstTableNumber + plan.tables.length,
+        });
+        freeOut = free.byes;
+      } else {
+        freeOut = rest.map((p) => p.id);
+      }
+    }
+
+    const tableDoc = (tableNumber, seats, freePlay) => ({
+      tableNumber,
+      riichiLeft: 0,
+      status: 'pending',
+      enteredBy: '',
+      verifiedBy: '',
+      lobby: '',
+      updatedAt: now(),
+      seats: seats.map((playerId, seatIndex) => ({ seatIndex, playerId })),
+      results: {},
+      ...(freePlay ? { freePlay: true } : {}),
+    });
+
     const byeValues = this.byeScoresFor(plan.byes);
     const round = {
       id: t.nextRoundId++,
@@ -496,18 +533,13 @@ class TournamentStore {
       seed: actualSeed,
       createdAt: now(),
       closedAt: null,
-      tables: plan.numberedTables().map(({ tableNumber, seats }) => ({
-        tableNumber,
-        riichiLeft: 0,
-        status: 'pending',
-        enteredBy: '',
-        verifiedBy: '',
-        lobby: '',
-        updatedAt: now(),
-        seats: seats.map((playerId, seatIndex) => ({ seatIndex, playerId })),
-        results: {},
-      })),
+      tables: plan.numberedTables()
+        .map(({ tableNumber, seats }) => tableDoc(tableNumber, seats, false))
+        .concat(free
+          ? free.numberedTables().map(({ tableNumber, seats }) => tableDoc(tableNumber, seats, true))
+          : []),
       byes: plan.byes.map((playerId) => ({ playerId, score: byeValues[playerId] })),
+      ...(phase === 'final' ? { freePlayOut: freeOut } : {}),
     };
     t.rounds.push(round);
     if (t.status === 'setup') t.status = 'running';
@@ -516,7 +548,8 @@ class TournamentStore {
       roundId: round.id,
       number: round.number,
       phase,
-      tables: round.tables.length,
+      tables: round.tables.filter((tb) => !tb.freePlay).length,
+      freePlayTables: round.tables.filter((tb) => tb.freePlay).length,
       byes: plan.byes,
       seed: actualSeed,
       method: chosen,
@@ -564,6 +597,8 @@ class TournamentStore {
         };
       });
 
+    // Free-play tables are not scored, so they count towards nothing here.
+    const scored = tables.filter((x) => !x.freePlay);
     return {
       ...round,
       tables,
@@ -572,8 +607,12 @@ class TournamentStore {
         name: (names.get(b.playerId) || {}).name || '?',
         score: b.score,
       })),
-      tablesTotal: tables.length,
-      tablesReported: tables.filter((x) => ['entered', 'verified'].includes(x.status)).length,
+      freePlayOut: (round.freePlayOut || []).map((id) => ({
+        playerId: id, name: (names.get(id) || {}).name || '?',
+      })),
+      tablesTotal: scored.length,
+      tablesReported: scored.filter((x) => ['entered', 'verified'].includes(x.status)).length,
+      freePlayTables: tables.length - scored.length,
     };
   }
 
@@ -755,6 +794,9 @@ class TournamentStore {
     const rules = this.rules;
     const table = round.tables.find((x) => x.tableNumber === Number(tableNumber));
     if (!table) throw new StoreError(`Table ${tableNumber} does not exist in this round.`);
+    if (table.freePlay) {
+      throw new StoreError(`Table ${tableNumber} is a free-play table, which is not scored.`);
+    }
     const seatOf = new Map(table.seats.filter((s) => s.playerId !== null)
       .map((s) => [s.playerId, s.seatIndex]));
     const names = new Map(t.players.map((p) => [p.id, p.name]));
@@ -813,6 +855,9 @@ class TournamentStore {
     const rules = this.rules;
     const table = round.tables.find((x) => x.tableNumber === Number(tableNumber));
     if (!table) throw new StoreError(`Table ${tableNumber} does not exist in this round.`);
+    if (table.freePlay) {
+      throw new StoreError(`Table ${tableNumber} is a free-play table, which is not scored.`);
+    }
     const seatOf = new Map(table.seats.filter((s) => s.playerId !== null)
       .map((s) => [s.playerId, s.seatIndex]));
 
@@ -879,6 +924,9 @@ class TournamentStore {
     const round = this.findRound(roundId);
     const table = round.tables.find((x) => x.tableNumber === Number(tableNumber));
     if (!table) throw new StoreError(`Table ${tableNumber} does not exist in this round.`);
+    if (table.freePlay) {
+      throw new StoreError(`Table ${tableNumber} is a free-play table, which is not scored.`);
+    }
     table.results = {};
     table.riichiLeft = 0;
     table.overridden = false;
@@ -894,6 +942,9 @@ class TournamentStore {
     const round = this.findRound(roundId);
     const table = round.tables.find((x) => x.tableNumber === Number(tableNumber));
     if (!table) throw new StoreError(`Table ${tableNumber} does not exist in this round.`);
+    if (table.freePlay) {
+      throw new StoreError(`Table ${tableNumber} is a free-play table, which is not scored.`);
+    }
     if (table.status === 'pending') {
       throw new StoreError("Enter the table's scores before verifying it.");
     }
@@ -910,7 +961,7 @@ class TournamentStore {
     const detail = this.getRound(roundId);
     const round = this.findRound(roundId);
     const missing = detail.tables
-      .filter((t) => !['entered', 'verified'].includes(t.status))
+      .filter((t) => !t.freePlay && !['entered', 'verified'].includes(t.status))
       .map((t) => t.tableNumber);
     if (missing.length && !force) {
       throw new StoreError(
@@ -1063,6 +1114,7 @@ class TournamentStore {
     for (const round of this.listRounds()) {
       if (!phases.includes(round.phase)) continue;
       for (const table of round.tables) {
+        if (table.freePlay) continue;
         const entries = Object.entries(table.results || {});
         if (entries.length !== rules.playersPerTable) continue;
         const seatOf = new Map(table.seats.filter((s) => s.playerId !== null)

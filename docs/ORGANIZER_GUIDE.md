@@ -227,8 +227,18 @@ when a decision is owed.
 
 ### Free play for everyone else
 
-Draw a round with the phase set to **Free play**. Those tables are seated and
-printed like any other but are not scored and do not affect the standings.
+Each final you draw also seats everyone who missed the cut at **free-play
+tables**, numbered after the final tables. They appear on the round page, the
+printed seating and the Discord post like any table, marked *free play*, but
+they have no report sheet and no score entry, they never count towards the
+standings, and closing the final does not wait for them. If the numbers do not
+divide into fours, whoever is left over is listed on the round page.
+
+The box for this is on the Cut & finals tab, ticked by default. Untick it to
+seat the finalists only; a change after the cut applies from the next final.
+
+Between rounds, or after the finals, you can also draw a whole round with the
+phase set to **Free play**: everyone is seated, nobody is scored.
 
 ---
 

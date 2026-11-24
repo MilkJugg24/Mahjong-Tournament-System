@@ -304,6 +304,19 @@ test('a real tournament still is written to the backup folder', async () => {
   assert.equal(store.doc.config.demo, undefined);
 });
 
+test('a correction goes into the results log that is never rewritten', async () => {
+  const { BackupManager } = require('../src/backup.js');
+  const target = recordingTarget();
+  const manager = new BackupManager();
+  manager.setTarget(target);
+  const store = builtTournament({ players: 4, rounds: 1 });
+  await manager.handleChange(store, 'table_amended', {
+    roundNumber: 1, table: 1, riichiLeft: 0, enteredBy: 'judge', scores: { 1: 45000 },
+  });
+  assert.ok(target.writes.some(([op, path]) => op === 'append' && /results_log\.csv$/.test(path)),
+    'the correction never reached log/results_log.csv');
+});
+
 /* ------------------------------------------- backups after a restart */
 
 /* A folder handle as the browser hands one back after a restart: the grant

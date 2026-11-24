@@ -591,6 +591,7 @@ class TournamentStore {
           verifiedBy: tb.verifiedBy,
           lobby: tb.lobby,
           overridden: Boolean(tb.overridden),
+          amended: Boolean(tb.amended),
           freePlay: Boolean(tb.freePlay),
           seats,
           outcome: this.tableOutcome(rules, tb, seats),
@@ -844,7 +845,7 @@ class TournamentStore {
     };
   }
 
-  /** Record one table's result. */
+  /** Record one table's result, while its round is open. */
   saveTable(roundId, tableNumber, entries, {
     riichiLeft = 0, enteredBy = '', verifiedBy = '', allowIssues = false,
   } = {}) {
@@ -852,6 +853,80 @@ class TournamentStore {
     if (round.status === 'complete') {
       throw new StoreError('This round is closed. Reopen it before changing a score.');
     }
+    const { table, seats, outcome } = this.writeTable(round, tableNumber, entries, {
+      riichiLeft, enteredBy, verifiedBy, allowIssues,
+    });
+    this.changed('table_saved', {
+      roundId: round.id,
+      roundNumber: round.number,
+      table: table.tableNumber,
+      riichiLeft: table.riichiLeft,
+      enteredBy: table.enteredBy,
+      scores: Object.fromEntries(seats.map((s) => [s.playerId, s.rawScore])),
+      issues: outcome.issues,
+      overridden: table.overridden,
+    });
+    return this.getRound(round.id);
+  }
+
+  /**
+   * Correct a table in a round that has already closed.
+   *
+   * Reopening a round is only allowed while no later round is seated, so a
+   * mis-entered sheet found two rounds on could only be fixed by deleting the
+   * rounds since, results and all. Seats never change here, so the later draws
+   * stand. A reason is required, and the event log keeps the scores as they
+   * were before alongside the new ones.
+   *
+   * Once the cut is made a qualifying table is refused: correcting it could
+   * change who should have gone through, which is for the organiser to settle
+   * by undoing the cut, not something to slip in underneath it.
+   */
+  amendTable(roundId, tableNumber, entries, {
+    riichiLeft = 0, enteredBy = '', reason = '', allowIssues = false,
+  } = {}) {
+    const t = this.require();
+    const round = this.findRound(roundId);
+    if (round.status !== 'complete') {
+      throw new StoreError('This round is still open. Enter the table as usual.');
+    }
+    const why = String(reason || '').trim();
+    if (!why) throw new StoreError('Say why the table is being corrected.');
+    if (round.phase === 'qualifying' && (t.config.cut || {}).applied) {
+      throw new StoreError(
+        'The cut has been made from the qualifying scores, so a qualifying table cannot be '
+        + 'corrected underneath it. Undo the cut first, which is possible until a final '
+        + 'is seated.');
+    }
+    const existing = round.tables.find((x) => x.tableNumber === Number(tableNumber));
+    const before = existing ? {
+      scores: Object.fromEntries(Object.entries(existing.results || {})
+        .map(([pid, r]) => [pid, r.rawScore])),
+      riichiLeft: existing.riichiLeft,
+    } : null;
+    const { table, seats, outcome } = this.writeTable(round, tableNumber, entries, {
+      riichiLeft, enteredBy, verifiedBy: '', allowIssues,
+    });
+    table.amended = true;
+    this.changed('table_amended', {
+      roundId: round.id,
+      roundNumber: round.number,
+      table: table.tableNumber,
+      riichiLeft: table.riichiLeft,
+      enteredBy: table.enteredBy,
+      scores: Object.fromEntries(seats.map((s) => [s.playerId, s.rawScore])),
+      before,
+      reason: why,
+      issues: outcome.issues,
+      overridden: table.overridden,
+    });
+    return this.getRound(round.id);
+  }
+
+  /** Check a table's scores and record them. Shared by saving and correcting. */
+  writeTable(round, tableNumber, entries, {
+    riichiLeft = 0, enteredBy = '', verifiedBy = '', allowIssues = false,
+  } = {}) {
     const rules = this.rules;
     const table = round.tables.find((x) => x.tableNumber === Number(tableNumber));
     if (!table) throw new StoreError(`Table ${tableNumber} does not exist in this round.`);
@@ -906,18 +981,7 @@ class TournamentStore {
     // the table so it stays visible, and in the log so it can be found later.
     table.overridden = blocking.length > 0;
     table.updatedAt = now();
-
-    this.changed('table_saved', {
-      roundId: round.id,
-      roundNumber: round.number,
-      table: table.tableNumber,
-      riichiLeft: table.riichiLeft,
-      enteredBy: table.enteredBy,
-      scores: Object.fromEntries(seats.map((s) => [s.playerId, s.rawScore])),
-      issues: outcome.issues,
-      overridden: table.overridden,
-    });
-    return this.getRound(round.id);
+    return { table, seats, outcome };
   }
 
   clearTable(roundId, tableNumber) {

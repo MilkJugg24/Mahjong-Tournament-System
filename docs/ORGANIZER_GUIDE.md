@@ -179,8 +179,16 @@ outstanding.
 to confirm. Closing locks the scores, takes a snapshot, and lets you draw the
 next hanchan.
 
-To fix something after closing, reopen the round from the round list — allowed
-as long as no later round has been seated.
+To fix a score after closing, press **Correct** beside the round in the round
+list and tap the table. It works even after later rounds are seated: the round
+stays closed and nobody's seat changes. Say why on the sheet; the log keeps the
+scores as they were alongside the new ones, and the table is marked as corrected.
+Once the cut is made, qualifying tables can no longer be corrected this way,
+because a change could alter who should have gone through. Undo the cut first,
+which is possible until a final is seated.
+
+**Reopen** is still there for anything else, as long as no later round has been
+seated.
 
 ---
 

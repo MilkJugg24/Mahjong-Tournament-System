@@ -354,6 +354,74 @@ test('clearing a table drops the mark', () => {
   assert.equal(out.tables.find((t) => t.tableNumber === 1).overridden, false);
 });
 
+/* Round 1 played and closed, round 2 already seated: the case a correction is for. */
+function laterRoundSeated() {
+  const store = newStore();
+  addPlayers(store, 8);
+  const first = store.generateRound();
+  playRound(store, first.id);
+  store.closeRound(first.id);
+  const second = store.generateRound();
+  return { store, first: store.getRound(first.id), second };
+}
+const typo = (round) => round.tables[0].seats.map((s, i) =>
+  ({ playerId: s.playerId, rawScore: [45000, 23000, 32000, 20000][i] }));
+
+test('a closed table can be corrected after the next round is seated', () => {
+  const { store, first, second } = laterRoundSeated();
+  const south = first.tables[0].seats[1].playerId;
+  const before = scoreOf(store.standings('qualifying'), south);
+  const after = store.amendTable(first.id, 1, typo(first), { reason: 'sheet says 23,000' });
+  assert.equal(after.status, 'complete', 'the round stays closed');
+  assert.equal(after.tables[0].amended, true);
+  assert.notEqual(scoreOf(store.standings('qualifying'), south), before);
+  assert.deepEqual(store.getRound(second.id).tables.map((t) => t.seats.map((s) => s.playerId)),
+    second.tables.map((t) => t.seats.map((s) => s.playerId)), 'the later draw stands');
+});
+
+test('a correction is logged with the scores it replaced, and why', () => {
+  const { store, first } = laterRoundSeated();
+  const old = Object.fromEntries(first.tables[0].seats.map((s) => [s.playerId, s.rawScore]));
+  store.amendTable(first.id, 1, typo(first), { reason: 'sheet says 23,000', enteredBy: 'judge' });
+  const logged = store.events(1)[0];
+  assert.equal(logged.kind, 'table_amended');
+  assert.equal(logged.payload.reason, 'sheet says 23,000');
+  assert.deepEqual(logged.payload.before.scores, old);
+  assert.equal(logged.payload.enteredBy, 'judge');
+});
+
+test('a correction needs a reason, and a closed round', () => {
+  const { store, first, second } = laterRoundSeated();
+  assert.throws(() => store.amendTable(first.id, 1, typo(first), { reason: '  ' }), /why/);
+  assert.throws(() => store.amendTable(second.id, 1, typo(second), { reason: 'x' }),
+    /still open/);
+});
+
+test('a correction is checked like any table', () => {
+  const { store, first } = laterRoundSeated();
+  const wrong = first.tables[0].seats.map((s, i) =>
+    ({ playerId: s.playerId, rawScore: [45000, 33000, 25000, 18000][i] }));
+  assert.throws(() => store.amendTable(first.id, 1, wrong, { reason: 'x' }), StoreError);
+  const out = store.amendTable(first.id, 1, wrong, { reason: 'signed so', allowIssues: true });
+  assert.equal(out.tables[0].overridden, true);
+});
+
+test('once the cut is made, a qualifying table cannot be corrected underneath it', () => {
+  const store = cutField(12);
+  const qualifying = store.listRounds()[0];
+  const round = store.getRound(qualifying.id);
+  assert.throws(() => store.amendTable(round.id, 1, typo(round), { reason: 'x' }), /Undo the cut/);
+});
+
+test('a final table can still be corrected after the cut', () => {
+  const store = cutField(12);
+  const final = store.generateRound({ phase: 'final' });
+  playRound(store, final.id);
+  store.closeRound(final.id);
+  const out = store.amendTable(final.id, 1, typo(store.getRound(final.id)), { reason: 'x' });
+  assert.equal(out.tables[0].amended, true);
+});
+
 test('a missing score is rejected', () => {
   const store = newStore();
   const round = seededTable(store);

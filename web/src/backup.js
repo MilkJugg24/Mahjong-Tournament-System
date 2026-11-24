@@ -510,7 +510,11 @@ class BackupManager {
     }
     return this.queue(async () => {
       await this.appendAudit(store, kind, payload);
-      if (kind === 'table_saved') await this.appendResultLog(store, payload);
+      // A correction is a score entered too, so the log that is never rewritten
+      // has to have it.
+      if (kind === 'table_saved' || kind === 'table_amended') {
+        await this.appendResultLog(store, payload);
+      }
       await this.refresh(store);
       if (SNAPSHOT_EVENTS.has(kind)) await this.snapshot(store, kind);
       this.lastError = null;

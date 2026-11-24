@@ -262,7 +262,8 @@ const TOPICS = [
     title: 'When something goes wrong',
     body: `
       <p><b>A score was entered wrong.</b> Tap the table and correct it while the round
-        is open. If the round is closed, reopen it, fix the table, close it again. The
+        is open. If the round is closed, press <b>Correct</b> beside it in the round
+        list, even if later rounds are already seated, and give the reason. The
         original entry stays in the log.</p>
       <p><b>Someone has to leave mid-event.</b> Set them to withdrawn on the Players
         tab. They keep the results they earned and drop out of future draws. Do not

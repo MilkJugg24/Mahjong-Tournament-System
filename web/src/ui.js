@@ -54,6 +54,8 @@ const state = {
   pendingLabel: '',
   tutorial: null,
   tutorialStep: null,
+  // A closed round being corrected, as { event, roundId }; null for the usual page.
+  amendRound: null,
 };
 
 // Every change: save the working copy, then write the record to disk.
@@ -764,9 +766,51 @@ function fieldSummary(plan) {
 
 /* --------------------------------------------------------------- round */
 
+/**
+ * The tables of a closed round, for correcting one. Shown in place of the
+ * round page until Back is pressed; returns false if there is nothing to show.
+ */
+function renderAmend() {
+  // Round ids repeat between events, so the correction remembers its event.
+  const target = state.amendRound;
+  if (!target || target.event !== state.store.doc.id) {
+    state.amendRound = null;
+    return false;
+  }
+  let rnd;
+  try {
+    rnd = state.store.getRound(target.roundId);
+  } catch {
+    state.amendRound = null;
+    return false;
+  }
+  if (rnd.status !== 'complete') {
+    state.amendRound = null;
+    return false;
+  }
+  $('#roundTitle').textContent = `Correcting ${rnd.label}`;
+  $('#roundLede').innerHTML = 'This round is closed. Tap a table to correct it: the round '
+    + 'stays closed, and nothing about later rounds changes.';
+  $('#roundBody').innerHTML = `<div class="card">
+    <div class="row" style="margin-bottom:12px">
+      <h2 style="margin:0">Tables</h2><span class="spacer"></span>
+      <button class="ghost" id="amendDone">Back to the round</button>
+    </div>
+    <div class="tables" id="amendGrid">${rnd.tables.map(tableCard).join('')}</div>
+  </div>`;
+  $('#amendDone').addEventListener('click', () => {
+    state.amendRound = null;
+    render();
+  });
+  $$('#amendGrid button.tcard').forEach((card) => card.addEventListener('click', () =>
+    openEntry(num(card.dataset.table), { round: rnd, amend: true })));
+  return true;
+}
+
 function renderRound() {
   const t = state.store.doc;
   if (!t) return;
+  if (state.amendRound !== null && renderAmend()) return;
   const rounds = state.store.listRounds();
   const open = rounds.find((r) => r.status !== 'complete');
   const planned = num(t.config.plannedRounds) || 0;
@@ -1033,12 +1077,16 @@ function tableCard(table) {
       + `${table.overridden ? '<strong>Recorded as signed.</strong> ' : ''}`
       + `${esc(table.outcome.issues[0].message)}</p>`
     : '';
+  const amended = table.amended
+    ? '<p class="small muted" style="margin:6px 0 0">Corrected after the round closed.</p>'
+    : '';
 
   return `<button class="tcard ${table.status}" data-table="${table.tableNumber}">
     <div class="thead"><span class="tnum">Table ${table.tableNumber}</span>${chip}</div>
     <ul>${seats}</ul>
     ${table.lobby ? `<p class="small muted" style="margin:6px 0 0">Lobby ${esc(table.lobby)}</p>` : ''}
     ${issues}
+    ${amended}
   </button>`;
 }
 
@@ -1054,7 +1102,8 @@ function renderRoundHistory(rounds) {
         : '<span class="chip warn">open</span>'}</td>
       <td class="num">${detail.tablesReported}/${detail.tablesTotal}</td>
       <td class="nowrap">
-        ${r.status === 'complete' ? `<button class="ghost" data-reopen="${r.id}">Reopen</button>` : ''}
+        ${r.status === 'complete' ? `<button class="ghost" data-amend="${r.id}">Correct</button>
+          <button class="ghost" data-reopen="${r.id}">Reopen</button>` : ''}
         <button class="ghost danger" data-delround="${r.id}">&times;</button>
       </td></tr>`;
   }).join('');
@@ -1066,6 +1115,11 @@ function renderRoundHistory(rounds) {
 }
 
 function attachRoundHistory() {
+  $$('[data-amend]').forEach((b) => b.addEventListener('click', () => {
+    state.amendRound = { event: state.store.doc.id, roundId: num(b.dataset.amend) };
+    render();
+    window.scrollTo({ top: 0 });
+  }));
   $$('[data-reopen]').forEach((b) => b.addEventListener('click', () => guard(() => {
     state.store.reopenRound(num(b.dataset.reopen));
     state.round = null;
@@ -1086,8 +1140,10 @@ function attachRoundHistory() {
 
 let entryTimer = null;
 
-function openEntry(tableNumber) {
-  const rnd = state.round;
+/* `amend`: correcting a table in a round that has closed. The same sheet,
+ * with a reason to give, and no verify or clear -- the round stays closed. */
+function openEntry(tableNumber, { round = state.round, amend = false } = {}) {
+  const rnd = round;
   const table = rnd.tables.find((t) => t.tableNumber === tableNumber);
   if (!table) return;
   const rules = state.store.rules;
@@ -1120,7 +1176,7 @@ function openEntry(tableNumber) {
       <header>
         <div>
           <h2>Table ${tableNumber}</h2>
-          <p class="small muted" style="margin:0">${esc(rnd.label)} &middot; points must total ${fmtPoints(tableTotal)}</p>
+          <p class="small muted" style="margin:0">${esc(rnd.label)}${amend ? ' (closed) &middot; correcting' : ''} &middot; points must total ${fmtPoints(tableTotal)}</p>
         </div>
         <button class="ghost" id="closeSheet" aria-label="Close">&times;</button>
       </header>
@@ -1130,8 +1186,10 @@ function openEntry(tableNumber) {
           <input type="number" id="eRiichi" min="0" max="20" value="${num(table.riichiLeft)}"></label>
         <label class="field"><span>Entered by</span>
           <input type="text" id="eBy" value="${esc(table.enteredBy)}" placeholder="your name"></label>
-        ${online ? `<label class="field"><span>Lobby / room code</span>
+        ${online && !amend ? `<label class="field"><span>Lobby / room code</span>
           <input type="text" id="eLobby" value="${esc(table.lobby)}" placeholder="e.g. 12345"></label>` : ''}
+        ${amend ? `<label class="field" style="grid-column:1/-1"><span>Why is it being corrected?</span>
+          <input type="text" id="eReason" placeholder="e.g. South's score was typed as 32,000; the sheet says 23,000"></label>` : ''}
       </div>
       <div class="checksum" id="eChecksum"><span>Table total</span><span class="v">&mdash;</span></div>
       <div id="ePreview"></div>
@@ -1144,10 +1202,10 @@ function openEntry(tableNumber) {
           tournament score and does not change the table total.</p>
       </details>
       <div class="btnrow sheet-actions">
-        <button class="primary big" id="eSave">Save scores</button>
-        <button id="eVerify"${table.status === 'pending' ? ' disabled' : ''}>Mark verified</button>
+        <button class="primary big" id="eSave">${amend ? 'Save correction' : 'Save scores'}</button>
+        ${amend ? '' : `<button id="eVerify"${table.status === 'pending' ? ' disabled' : ''}>Mark verified</button>`}
         <span class="spacer"></span>
-        ${table.status !== 'pending' ? '<button class="danger" id="eClear">Clear</button>' : ''}
+        ${!amend && table.status !== 'pending' ? '<button class="danger" id="eClear">Clear</button>' : ''}
       </div>
       <p class="small muted" id="eHint" style="margin-bottom:0"></p>
     </div>
@@ -1250,6 +1308,19 @@ function openEntry(tableNumber) {
     if (entries.length !== inputs.length) {
       return toast('Every player at the table needs a score.', 'warn');
     }
+    if (amend) {
+      state.store.amendTable(rnd.id, tableNumber, entries, {
+        riichiLeft: num($('#eRiichi').value),
+        enteredBy: $('#eBy').value,
+        reason: $('#eReason').value,
+        allowIssues,
+      });
+      loadStandings();
+      closeSheet();
+      render();
+      toast(`Table ${tableNumber} of ${rnd.label} corrected. The log keeps the scores as they were.`);
+      return null;
+    }
     if (online && $('#eLobby')) {
       state.store.setTableLobby(rnd.id, tableNumber, $('#eLobby').value);
     }
@@ -1286,16 +1357,19 @@ function openEntry(tableNumber) {
 
   $('#eSave').addEventListener('click', () => save());
 
-  $('#eVerify').addEventListener('click', () => {
-    const who = window.prompt('Verified by (referee or staff name):', $('#eBy').value || '');
-    if (who === null) return;
-    guard(() => {
-      state.round = state.store.verifyTable(rnd.id, tableNumber, who);
-      closeSheet();
-      render();
-      toast(`Table ${tableNumber} verified.`);
+  const verify = $('#eVerify');
+  if (verify) {
+    verify.addEventListener('click', () => {
+      const who = window.prompt('Verified by (referee or staff name):', $('#eBy').value || '');
+      if (who === null) return;
+      guard(() => {
+        state.round = state.store.verifyTable(rnd.id, tableNumber, who);
+        closeSheet();
+        render();
+        toast(`Table ${tableNumber} verified.`);
+      });
     });
-  });
+  }
 
   const clear = $('#eClear');
   if (clear) {
@@ -2214,6 +2288,7 @@ async function openTournament(id) {
   if (!doc) { toast('That tournament is no longer in this browser.', 'error'); return; }
   state.store.load(doc);
   state.round = null;
+  state.amendRound = null;
   loadStandings();
   setView(state.store.listPlayers().length ? 'round' : 'players');
 }
@@ -2333,6 +2408,7 @@ function discordOnChange(kind) {
     round_generated: 'pairings',
     round_closed: 'both',
     table_saved: 'standings',
+    table_amended: 'standings',
     cut_applied: 'both',
     round_reseated: 'pairings',
     seats_swapped: 'pairings',

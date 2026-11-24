@@ -61,6 +61,9 @@ RT:FILE scoring.js
 | Everything that changes a tournament | `store.js` — every mutation goes through here |
 | Why can a round not be re-drawn after a score is in? | `store.js` → `reseatRound()`, which refuses |
 | Why can a closed round not be edited? | `store.js` → `saveTable()`, which refuses |
+| How is a closed table corrected, then? | `store.js` → `amendTable()`, which needs a reason and logs the old scores |
+| How do seats change after the draw? | `store.js` → `swapSeats()`, including someone from outside the round |
+| Where do free-play tables beside a final come from? | `store.js` → `generateRound()`, the `freePlayForRest` block |
 | How does the cut work? | `store.js` → `applyCut()` |
 | Where is the audit trail written? | `backup.js` → `appendAudit()` |
 

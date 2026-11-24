@@ -18,14 +18,14 @@
     RT:FILE scoring.js   line   1042  Scoring engine -- World Riichi Championship 2025.  <-- the arithmetic
     RT:FILE seating.js   line   1809  Seating and pairing engine.
     RT:FILE store.js     line   2449  Tournament operations -- the layer the interface sits on.
-    RT:FILE backup.js    line   3806  Backups: the CSV files, the folder on disk, and restore points.
-    RT:FILE persist.js   line   4543  The working copy: IndexedDB.
-    RT:FILE printing.js  line   4780  Printable pages.
-    RT:FILE discord.js   line   5100  Posting pairings and standings to a Discord channel.
-    RT:FILE help.js      line   5355  Help content: the help page, and the text behind every "?" bubble.
-    RT:FILE testdata.js  line   5649  Made-up rosters and made-up scores, for trying the program out.
-    RT:FILE tutorial.js  line   5775  The guided tutorial: a demo tournament that plays itself while ...
-    RT:FILE ui.js        line   6242  The browser interface.
+    RT:FILE backup.js    line   3870  Backups: the CSV files, the folder on disk, and restore points.
+    RT:FILE persist.js   line   4611  The working copy: IndexedDB.
+    RT:FILE printing.js  line   4848  Printable pages.
+    RT:FILE discord.js   line   5168  Posting pairings and standings to a Discord channel.
+    RT:FILE help.js      line   5423  Help content: the help page, and the text behind every "?" bubble.
+    RT:FILE testdata.js  line   5718  Made-up rosters and made-up scores, for trying the program out.
+    RT:FILE tutorial.js  line   5844  The guided tutorial: a demo tournament that plays itself while ...
+    RT:FILE ui.js        line   6311  The browser interface.
 
     To check how a score was worked out, read scoring.js: the formula is
     written out at the top of it, and rational.js is the exact arithmetic
@@ -3041,6 +3041,7 @@ class TournamentStore {
           verifiedBy: tb.verifiedBy,
           lobby: tb.lobby,
           overridden: Boolean(tb.overridden),
+          amended: Boolean(tb.amended),
           freePlay: Boolean(tb.freePlay),
           seats,
           outcome: this.tableOutcome(rules, tb, seats),
@@ -3294,7 +3295,7 @@ class TournamentStore {
     };
   }
 
-  /** Record one table's result. */
+  /** Record one table's result, while its round is open. */
   saveTable(roundId, tableNumber, entries, {
     riichiLeft = 0, enteredBy = '', verifiedBy = '', allowIssues = false,
   } = {}) {
@@ -3302,6 +3303,80 @@ class TournamentStore {
     if (round.status === 'complete') {
       throw new StoreError('This round is closed. Reopen it before changing a score.');
     }
+    const { table, seats, outcome } = this.writeTable(round, tableNumber, entries, {
+      riichiLeft, enteredBy, verifiedBy, allowIssues,
+    });
+    this.changed('table_saved', {
+      roundId: round.id,
+      roundNumber: round.number,
+      table: table.tableNumber,
+      riichiLeft: table.riichiLeft,
+      enteredBy: table.enteredBy,
+      scores: Object.fromEntries(seats.map((s) => [s.playerId, s.rawScore])),
+      issues: outcome.issues,
+      overridden: table.overridden,
+    });
+    return this.getRound(round.id);
+  }
+
+  /**
+   * Correct a table in a round that has already closed.
+   *
+   * Reopening a round is only allowed while no later round is seated, so a
+   * mis-entered sheet found two rounds on could only be fixed by deleting the
+   * rounds since, results and all. Seats never change here, so the later draws
+   * stand. A reason is required, and the event log keeps the scores as they
+   * were before alongside the new ones.
+   *
+   * Once the cut is made a qualifying table is refused: correcting it could
+   * change who should have gone through, which is for the organiser to settle
+   * by undoing the cut, not something to slip in underneath it.
+   */
+  amendTable(roundId, tableNumber, entries, {
+    riichiLeft = 0, enteredBy = '', reason = '', allowIssues = false,
+  } = {}) {
+    const t = this.require();
+    const round = this.findRound(roundId);
+    if (round.status !== 'complete') {
+      throw new StoreError('This round is still open. Enter the table as usual.');
+    }
+    const why = String(reason || '').trim();
+    if (!why) throw new StoreError('Say why the table is being corrected.');
+    if (round.phase === 'qualifying' && (t.config.cut || {}).applied) {
+      throw new StoreError(
+        'The cut has been made from the qualifying scores, so a qualifying table cannot be '
+        + 'corrected underneath it. Undo the cut first, which is possible until a final '
+        + 'is seated.');
+    }
+    const existing = round.tables.find((x) => x.tableNumber === Number(tableNumber));
+    const before = existing ? {
+      scores: Object.fromEntries(Object.entries(existing.results || {})
+        .map(([pid, r]) => [pid, r.rawScore])),
+      riichiLeft: existing.riichiLeft,
+    } : null;
+    const { table, seats, outcome } = this.writeTable(round, tableNumber, entries, {
+      riichiLeft, enteredBy, verifiedBy: '', allowIssues,
+    });
+    table.amended = true;
+    this.changed('table_amended', {
+      roundId: round.id,
+      roundNumber: round.number,
+      table: table.tableNumber,
+      riichiLeft: table.riichiLeft,
+      enteredBy: table.enteredBy,
+      scores: Object.fromEntries(seats.map((s) => [s.playerId, s.rawScore])),
+      before,
+      reason: why,
+      issues: outcome.issues,
+      overridden: table.overridden,
+    });
+    return this.getRound(round.id);
+  }
+
+  /** Check a table's scores and record them. Shared by saving and correcting. */
+  writeTable(round, tableNumber, entries, {
+    riichiLeft = 0, enteredBy = '', verifiedBy = '', allowIssues = false,
+  } = {}) {
     const rules = this.rules;
     const table = round.tables.find((x) => x.tableNumber === Number(tableNumber));
     if (!table) throw new StoreError(`Table ${tableNumber} does not exist in this round.`);
@@ -3356,18 +3431,7 @@ class TournamentStore {
     // the table so it stays visible, and in the log so it can be found later.
     table.overridden = blocking.length > 0;
     table.updatedAt = now();
-
-    this.changed('table_saved', {
-      roundId: round.id,
-      roundNumber: round.number,
-      table: table.tableNumber,
-      riichiLeft: table.riichiLeft,
-      enteredBy: table.enteredBy,
-      scores: Object.fromEntries(seats.map((s) => [s.playerId, s.rawScore])),
-      issues: outcome.issues,
-      overridden: table.overridden,
-    });
-    return this.getRound(round.id);
+    return { table, seats, outcome };
   }
 
   clearTable(roundId, tableNumber) {
@@ -4317,7 +4381,11 @@ class BackupManager {
     }
     return this.queue(async () => {
       await this.appendAudit(store, kind, payload);
-      if (kind === 'table_saved') await this.appendResultLog(store, payload);
+      // A correction is a score entered too, so the log that is never rewritten
+      // has to have it.
+      if (kind === 'table_saved' || kind === 'table_amended') {
+        await this.appendResultLog(store, payload);
+      }
       await this.refresh(store);
       if (SNAPSHOT_EVENTS.has(kind)) await this.snapshot(store, kind);
       this.lastError = null;
@@ -5618,7 +5686,8 @@ const TOPICS = [
     title: 'When something goes wrong',
     body: `
       <p><b>A score was entered wrong.</b> Tap the table and correct it while the round
-        is open. If the round is closed, reopen it, fix the table, close it again. The
+        is open. If the round is closed, press <b>Correct</b> beside it in the round
+        list, even if later rounds are already seated, and give the reason. The
         original entry stays in the log.</p>
       <p><b>Someone has to leave mid-event.</b> Set them to withdrawn on the Players
         tab. They keep the results they earned and drop out of future draws. Do not
@@ -6297,6 +6366,8 @@ const state = {
   pendingLabel: '',
   tutorial: null,
   tutorialStep: null,
+  // A closed round being corrected, as { event, roundId }; null for the usual page.
+  amendRound: null,
 };
 
 // Every change: save the working copy, then write the record to disk.
@@ -7007,9 +7078,51 @@ function fieldSummary(plan) {
 
 /* --------------------------------------------------------------- round */
 
+/**
+ * The tables of a closed round, for correcting one. Shown in place of the
+ * round page until Back is pressed; returns false if there is nothing to show.
+ */
+function renderAmend() {
+  // Round ids repeat between events, so the correction remembers its event.
+  const target = state.amendRound;
+  if (!target || target.event !== state.store.doc.id) {
+    state.amendRound = null;
+    return false;
+  }
+  let rnd;
+  try {
+    rnd = state.store.getRound(target.roundId);
+  } catch {
+    state.amendRound = null;
+    return false;
+  }
+  if (rnd.status !== 'complete') {
+    state.amendRound = null;
+    return false;
+  }
+  $('#roundTitle').textContent = `Correcting ${rnd.label}`;
+  $('#roundLede').innerHTML = 'This round is closed. Tap a table to correct it: the round '
+    + 'stays closed, and nothing about later rounds changes.';
+  $('#roundBody').innerHTML = `<div class="card">
+    <div class="row" style="margin-bottom:12px">
+      <h2 style="margin:0">Tables</h2><span class="spacer"></span>
+      <button class="ghost" id="amendDone">Back to the round</button>
+    </div>
+    <div class="tables" id="amendGrid">${rnd.tables.map(tableCard).join('')}</div>
+  </div>`;
+  $('#amendDone').addEventListener('click', () => {
+    state.amendRound = null;
+    render();
+  });
+  $$('#amendGrid button.tcard').forEach((card) => card.addEventListener('click', () =>
+    openEntry(num(card.dataset.table), { round: rnd, amend: true })));
+  return true;
+}
+
 function renderRound() {
   const t = state.store.doc;
   if (!t) return;
+  if (state.amendRound !== null && renderAmend()) return;
   const rounds = state.store.listRounds();
   const open = rounds.find((r) => r.status !== 'complete');
   const planned = num(t.config.plannedRounds) || 0;
@@ -7276,12 +7389,16 @@ function tableCard(table) {
       + `${table.overridden ? '<strong>Recorded as signed.</strong> ' : ''}`
       + `${esc(table.outcome.issues[0].message)}</p>`
     : '';
+  const amended = table.amended
+    ? '<p class="small muted" style="margin:6px 0 0">Corrected after the round closed.</p>'
+    : '';
 
   return `<button class="tcard ${table.status}" data-table="${table.tableNumber}">
     <div class="thead"><span class="tnum">Table ${table.tableNumber}</span>${chip}</div>
     <ul>${seats}</ul>
     ${table.lobby ? `<p class="small muted" style="margin:6px 0 0">Lobby ${esc(table.lobby)}</p>` : ''}
     ${issues}
+    ${amended}
   </button>`;
 }
 
@@ -7297,7 +7414,8 @@ function renderRoundHistory(rounds) {
         : '<span class="chip warn">open</span>'}</td>
       <td class="num">${detail.tablesReported}/${detail.tablesTotal}</td>
       <td class="nowrap">
-        ${r.status === 'complete' ? `<button class="ghost" data-reopen="${r.id}">Reopen</button>` : ''}
+        ${r.status === 'complete' ? `<button class="ghost" data-amend="${r.id}">Correct</button>
+          <button class="ghost" data-reopen="${r.id}">Reopen</button>` : ''}
         <button class="ghost danger" data-delround="${r.id}">&times;</button>
       </td></tr>`;
   }).join('');
@@ -7309,6 +7427,11 @@ function renderRoundHistory(rounds) {
 }
 
 function attachRoundHistory() {
+  $$('[data-amend]').forEach((b) => b.addEventListener('click', () => {
+    state.amendRound = { event: state.store.doc.id, roundId: num(b.dataset.amend) };
+    render();
+    window.scrollTo({ top: 0 });
+  }));
   $$('[data-reopen]').forEach((b) => b.addEventListener('click', () => guard(() => {
     state.store.reopenRound(num(b.dataset.reopen));
     state.round = null;
@@ -7329,8 +7452,10 @@ function attachRoundHistory() {
 
 let entryTimer = null;
 
-function openEntry(tableNumber) {
-  const rnd = state.round;
+/* `amend`: correcting a table in a round that has closed. The same sheet,
+ * with a reason to give, and no verify or clear -- the round stays closed. */
+function openEntry(tableNumber, { round = state.round, amend = false } = {}) {
+  const rnd = round;
   const table = rnd.tables.find((t) => t.tableNumber === tableNumber);
   if (!table) return;
   const rules = state.store.rules;
@@ -7363,7 +7488,7 @@ function openEntry(tableNumber) {
       <header>
         <div>
           <h2>Table ${tableNumber}</h2>
-          <p class="small muted" style="margin:0">${esc(rnd.label)} &middot; points must total ${fmtPoints(tableTotal)}</p>
+          <p class="small muted" style="margin:0">${esc(rnd.label)}${amend ? ' (closed) &middot; correcting' : ''} &middot; points must total ${fmtPoints(tableTotal)}</p>
         </div>
         <button class="ghost" id="closeSheet" aria-label="Close">&times;</button>
       </header>
@@ -7373,8 +7498,10 @@ function openEntry(tableNumber) {
           <input type="number" id="eRiichi" min="0" max="20" value="${num(table.riichiLeft)}"></label>
         <label class="field"><span>Entered by</span>
           <input type="text" id="eBy" value="${esc(table.enteredBy)}" placeholder="your name"></label>
-        ${online ? `<label class="field"><span>Lobby / room code</span>
+        ${online && !amend ? `<label class="field"><span>Lobby / room code</span>
           <input type="text" id="eLobby" value="${esc(table.lobby)}" placeholder="e.g. 12345"></label>` : ''}
+        ${amend ? `<label class="field" style="grid-column:1/-1"><span>Why is it being corrected?</span>
+          <input type="text" id="eReason" placeholder="e.g. South's score was typed as 32,000; the sheet says 23,000"></label>` : ''}
       </div>
       <div class="checksum" id="eChecksum"><span>Table total</span><span class="v">&mdash;</span></div>
       <div id="ePreview"></div>
@@ -7387,10 +7514,10 @@ function openEntry(tableNumber) {
           tournament score and does not change the table total.</p>
       </details>
       <div class="btnrow sheet-actions">
-        <button class="primary big" id="eSave">Save scores</button>
-        <button id="eVerify"${table.status === 'pending' ? ' disabled' : ''}>Mark verified</button>
+        <button class="primary big" id="eSave">${amend ? 'Save correction' : 'Save scores'}</button>
+        ${amend ? '' : `<button id="eVerify"${table.status === 'pending' ? ' disabled' : ''}>Mark verified</button>`}
         <span class="spacer"></span>
-        ${table.status !== 'pending' ? '<button class="danger" id="eClear">Clear</button>' : ''}
+        ${!amend && table.status !== 'pending' ? '<button class="danger" id="eClear">Clear</button>' : ''}
       </div>
       <p class="small muted" id="eHint" style="margin-bottom:0"></p>
     </div>
@@ -7493,6 +7620,19 @@ function openEntry(tableNumber) {
     if (entries.length !== inputs.length) {
       return toast('Every player at the table needs a score.', 'warn');
     }
+    if (amend) {
+      state.store.amendTable(rnd.id, tableNumber, entries, {
+        riichiLeft: num($('#eRiichi').value),
+        enteredBy: $('#eBy').value,
+        reason: $('#eReason').value,
+        allowIssues,
+      });
+      loadStandings();
+      closeSheet();
+      render();
+      toast(`Table ${tableNumber} of ${rnd.label} corrected. The log keeps the scores as they were.`);
+      return null;
+    }
     if (online && $('#eLobby')) {
       state.store.setTableLobby(rnd.id, tableNumber, $('#eLobby').value);
     }
@@ -7529,16 +7669,19 @@ function openEntry(tableNumber) {
 
   $('#eSave').addEventListener('click', () => save());
 
-  $('#eVerify').addEventListener('click', () => {
-    const who = window.prompt('Verified by (referee or staff name):', $('#eBy').value || '');
-    if (who === null) return;
-    guard(() => {
-      state.round = state.store.verifyTable(rnd.id, tableNumber, who);
-      closeSheet();
-      render();
-      toast(`Table ${tableNumber} verified.`);
+  const verify = $('#eVerify');
+  if (verify) {
+    verify.addEventListener('click', () => {
+      const who = window.prompt('Verified by (referee or staff name):', $('#eBy').value || '');
+      if (who === null) return;
+      guard(() => {
+        state.round = state.store.verifyTable(rnd.id, tableNumber, who);
+        closeSheet();
+        render();
+        toast(`Table ${tableNumber} verified.`);
+      });
     });
-  });
+  }
 
   const clear = $('#eClear');
   if (clear) {
@@ -8457,6 +8600,7 @@ async function openTournament(id) {
   if (!doc) { toast('That tournament is no longer in this browser.', 'error'); return; }
   state.store.load(doc);
   state.round = null;
+  state.amendRound = null;
   loadStandings();
   setView(state.store.listPlayers().length ? 'round' : 'players');
 }
@@ -8576,6 +8720,7 @@ function discordOnChange(kind) {
     round_generated: 'pairings',
     round_closed: 'both',
     table_saved: 'standings',
+    table_amended: 'standings',
     cut_applied: 'both',
     round_reseated: 'pairings',
     seats_swapped: 'pairings',

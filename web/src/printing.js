@@ -183,7 +183,12 @@ function scoreSheet(tournament, rules, round, table) {
 
 function standingsPage(tournament, standings, players, scope, precision) {
   const clubs = new Map(players.map((p) => [p.id, p.club]));
-  const rows = standings.map((s) => '<tr>'
+  const rows = standings.map((s, i) => (
+    s.stage === 'qualifying' && i > 0 && standings[i - 1].stage === 'final'
+      ? '<tr><td colspan="9" style="border:0;padding-top:5mm;color:#555">'
+        + 'Did not make the cut &mdash; placed by qualifying score</td></tr>'
+      : '')
+    + '<tr>'
     + `<td class="num${s.rank === 1 ? ' rank1' : ''}">${s.rank}${s.needsCoinToss ? '*' : ''}</td>`
     + `<td>${esc(s.name)}</td>`
     + `<td>${esc(clubs.get(s.playerId) || '')}</td>`

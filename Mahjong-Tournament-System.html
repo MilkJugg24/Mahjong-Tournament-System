@@ -18,14 +18,14 @@
     RT:FILE scoring.js   line   1027  Scoring engine -- World Riichi Championship 2025.  <-- the arithmetic
     RT:FILE seating.js   line   1794  Seating and pairing engine.
     RT:FILE store.js     line   2434  Tournament operations -- the layer the interface sits on.
-    RT:FILE backup.js    line   3632  Backups: the CSV files, the folder on disk, and restore points.
-    RT:FILE persist.js   line   4281  The working copy: IndexedDB.
-    RT:FILE printing.js  line   4518  Printable pages.
-    RT:FILE discord.js   line   4828  Posting pairings and standings to a Discord channel.
-    RT:FILE help.js      line   5079  Help content: the help page, and the text behind every "?" bubble.
-    RT:FILE testdata.js  line   5362  Made-up rosters and made-up scores, for trying the program out.
-    RT:FILE tutorial.js  line   5488  The guided tutorial: a demo tournament that plays itself while ...
-    RT:FILE ui.js        line   5954  The browser interface.
+    RT:FILE backup.js    line   3673  Backups: the CSV files, the folder on disk, and restore points.
+    RT:FILE persist.js   line   4324  The working copy: IndexedDB.
+    RT:FILE printing.js  line   4561  Printable pages.
+    RT:FILE discord.js   line   4876  Posting pairings and standings to a Discord channel.
+    RT:FILE help.js      line   5130  Help content: the help page, and the text behind every "?" bubble.
+    RT:FILE testdata.js  line   5413  Made-up rosters and made-up scores, for trying the program out.
+    RT:FILE tutorial.js  line   5539  The guided tutorial: a demo tournament that plays itself while ...
+    RT:FILE ui.js        line   6005  The browser interface.
 
     To check how a score was worked out, read scoring.js: the formula is
     written out at the top of it, and rational.js is the exact arithmetic
@@ -3493,8 +3493,49 @@ class TournamentStore {
     return [...records.values()];
   }
 
+  /**
+   * The ranking for a scope. Before a cut, "overall" is every scored hanchan
+   * added up. Once a cut is made it is the event's finishing order instead --
+   * see eventStandings() -- because adding qualifying and finals together
+   * gives the wrong answer under the ARA's reset.
+   */
   standings(scope = 'overall') {
+    if (scope === 'overall' && (this.require().config.cut || {}).applied) {
+      return this.eventStandings();
+    }
     return buildStandings(this.rules, this.records(scope));
+  }
+
+  /**
+   * How the event finished: the finalists in their finals order, then everyone
+   * else in their qualifying order, placed after them.
+   *
+   * Summing both stages crowned the wrong player under a reset -- the winner of
+   * the final could come second to someone with a bigger qualifying score --
+   * and could rank a player who missed the cut above one who made it. Until a
+   * final hanchan has been scored, the finalists stand in their seeding order,
+   * since a reset final would otherwise show all of them tied on zero.
+   *
+   * Each row says which stage its score comes from, in `stage`.
+   */
+  eventStandings() {
+    const rules = this.rules;
+    const through = new Set((this.require().config.cut.qualified || []).map(Number));
+    const qualifying = buildStandings(rules, this.records('qualifying'));
+    const finalRecords = this.records('final');
+    const finalists = finalRecords.some((r) => r.hanchanScores.length)
+      ? buildStandings(rules, finalRecords)
+      : qualifying.filter((s) => through.has(s.playerId));
+    const rest = qualifying.filter((s) => !through.has(s.playerId));
+
+    // Renumber from `offset`, keeping shared places shared.
+    const placed = (rows, offset, stage) => {
+      const first = new Map();
+      rows.forEach((s, i) => { if (!first.has(s.rank)) first.set(s.rank, i); });
+      return rows.map((s) => ({ ...s, rank: offset + 1 + first.get(s.rank), stage }));
+    };
+    return placed(finalists, 0, 'final')
+      .concat(placed(rest, finalists.length, 'qualifying'));
   }
 
   /* ---------------------------------------------------------------- cut */
@@ -3817,7 +3858,7 @@ function standingRows(standings, players, precision) {
   const rows = [['rank', 'player_id', 'name', 'club', 'tournament_score',
     'hanchan_played', 'firsts', 'seconds', 'thirds', 'fourths', 'best_hanchan',
     'average_placement', 'byes', 'bye_total', 'carry_over', 'penalty_total',
-    'raw_delta', 'needs_tiebreak']];
+    'raw_delta', 'needs_tiebreak', 'stage']];
   for (const s of standings) {
     rows.push([
       s.rank, s.playerId, s.name, clubs.get(s.playerId) || '',
@@ -3828,6 +3869,8 @@ function standingRows(standings, players, precision) {
       s.byes, s.byeTotal.toFixed(precision), s.carryOver.toFixed(precision),
       s.penaltyTotal.toFixed(precision), s.rawDelta.toFixed(precision),
       s.needsCoinToss ? 'yes' : '',
+      // After a cut, the overall file mixes two stages: which score this is.
+      s.stage || '',
     ]);
   }
   return rows;
@@ -4702,7 +4745,12 @@ function scoreSheet(tournament, rules, round, table) {
 
 function standingsPage(tournament, standings, players, scope, precision) {
   const clubs = new Map(players.map((p) => [p.id, p.club]));
-  const rows = standings.map((s) => '<tr>'
+  const rows = standings.map((s, i) => (
+    s.stage === 'qualifying' && i > 0 && standings[i - 1].stage === 'final'
+      ? '<tr><td colspan="9" style="border:0;padding-top:5mm;color:#555">'
+        + 'Did not make the cut &mdash; placed by qualifying score</td></tr>'
+      : '')
+    + '<tr>'
     + `<td class="num${s.rank === 1 ? ' rank1' : ''}">${s.rank}${s.needsCoinToss ? '*' : ''}</td>`
     + `<td>${esc(s.name)}</td>`
     + `<td>${esc(clubs.get(s.playerId) || '')}</td>`
@@ -4973,8 +5021,11 @@ function standingsMessage(tournament, rows, { scope = 'overall', precision = 1 }
   const tail = '\n```';
   const out = [];
   let used = head.length + tail.length;
-  for (const r of rows) {
-    const next = line(r);
+  for (const [i, r] of rows.entries()) {
+    // After a cut the overall list is finalists, then everyone else.
+    const cutLine = r.stage === 'qualifying' && i > 0 && rows[i - 1].stage === 'final'
+      ? `${' '.repeat(5)}${'-'.repeat(width + 10)}\n` : '';
+    const next = cutLine + line(r);
     if (used + next.length + 1 > LIMITS.embedDescription - 120) break;
     out.push(next);
     used += next.length + 1;
@@ -7141,9 +7192,14 @@ function renderStandings() {
   const anyBye = rows.some((r) => r.byes);
   const prec = state.store.rules.scorePrecision;
 
-  const body = rows.map((r) => {
+  const columns = 12 + (anyBye ? 1 : 0) + (anyCarry ? 1 : 0);
+  const body = rows.map((r, i) => {
     const p = players.get(r.playerId) || {};
-    return `<tr>
+    const cutLine = r.stage === 'qualifying' && i > 0 && rows[i - 1].stage === 'final'
+      ? `<tr><td colspan="${columns}" class="small muted" style="padding-top:14px">`
+        + 'Did not make the cut &mdash; placed by qualifying score</td></tr>'
+      : '';
+    return `${cutLine}<tr>
     <td class="num ${r.rank === 1 ? 'rank1' : ''}">${r.rank}${r.needsCoinToss ? '*' : ''}</td>
     <td>${esc(r.name)}${p.status && p.status !== 'active'
       ? ` <span class="chip bad">${esc(p.status)}</span>` : ''}</td>
@@ -7176,6 +7232,10 @@ function renderStandings() {
     ${anyTie ? '<p class="small" style="color:var(--warn);margin-top:10px">* Still level after every '
       + 'tiebreaker. WRC settles this with a coin toss &mdash; record the result as a manual '
       + 'tiebreak on the Players tab.</p>' : ''}
+    ${rows.some((r) => r.stage) ? `<p class="small muted">After the cut, Overall is how the
+      event finished: the finalists in their finals order, then everyone else by their
+      qualifying score.${rows.some((r) => r.stage === 'final' && !r.hanchanPlayed)
+    ? ' No final hanchan has been scored yet, so the finalists stand in seeding order.' : ''}</p>` : ''}
     <p class="small muted" style="margin-bottom:0">Ranked by score, then most firsts, fewest lasts,
       best single hanchan, then any manual tiebreak.</p>
   </div>`;

@@ -1058,8 +1058,49 @@ class TournamentStore {
     return [...records.values()];
   }
 
+  /**
+   * The ranking for a scope. Before a cut, "overall" is every scored hanchan
+   * added up. Once a cut is made it is the event's finishing order instead --
+   * see eventStandings() -- because adding qualifying and finals together
+   * gives the wrong answer under the ARA's reset.
+   */
   standings(scope = 'overall') {
+    if (scope === 'overall' && (this.require().config.cut || {}).applied) {
+      return this.eventStandings();
+    }
     return buildStandings(this.rules, this.records(scope));
+  }
+
+  /**
+   * How the event finished: the finalists in their finals order, then everyone
+   * else in their qualifying order, placed after them.
+   *
+   * Summing both stages crowned the wrong player under a reset -- the winner of
+   * the final could come second to someone with a bigger qualifying score --
+   * and could rank a player who missed the cut above one who made it. Until a
+   * final hanchan has been scored, the finalists stand in their seeding order,
+   * since a reset final would otherwise show all of them tied on zero.
+   *
+   * Each row says which stage its score comes from, in `stage`.
+   */
+  eventStandings() {
+    const rules = this.rules;
+    const through = new Set((this.require().config.cut.qualified || []).map(Number));
+    const qualifying = buildStandings(rules, this.records('qualifying'));
+    const finalRecords = this.records('final');
+    const finalists = finalRecords.some((r) => r.hanchanScores.length)
+      ? buildStandings(rules, finalRecords)
+      : qualifying.filter((s) => through.has(s.playerId));
+    const rest = qualifying.filter((s) => !through.has(s.playerId));
+
+    // Renumber from `offset`, keeping shared places shared.
+    const placed = (rows, offset, stage) => {
+      const first = new Map();
+      rows.forEach((s, i) => { if (!first.has(s.rank)) first.set(s.rank, i); });
+      return rows.map((s) => ({ ...s, rank: offset + 1 + first.get(s.rank), stage }));
+    };
+    return placed(finalists, 0, 'final')
+      .concat(placed(rest, finalists.length, 'qualifying'));
   }
 
   /* ---------------------------------------------------------------- cut */

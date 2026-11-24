@@ -183,6 +183,14 @@ same four do not sit together every time.
 
 Standings then has three views: **Qualifying**, **Finals**, and **Overall**.
 
+After the cut, **Overall** is how the event finished: the finalists in their
+finals order, then everyone else by their qualifying score, placed after them.
+Nobody who missed the cut can rank above a finalist, and under a reset the
+winner of the final is first however the qualifying went. Until a final hanchan
+has been scored, the finalists stand in their seeding order. `standings.csv`,
+the printed standings and the Discord post all follow this view, and the CSV's
+`stage` column says which score each row is.
+
 ### If the cut line is tied
 
 The cut will refuse and tell you who is level:

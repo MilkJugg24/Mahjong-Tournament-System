@@ -144,8 +144,11 @@ function standingsMessage(tournament, rows, { scope = 'overall', precision = 1 }
   const tail = '\n```';
   const out = [];
   let used = head.length + tail.length;
-  for (const r of rows) {
-    const next = line(r);
+  for (const [i, r] of rows.entries()) {
+    // After a cut the overall list is finalists, then everyone else.
+    const cutLine = r.stage === 'qualifying' && i > 0 && rows[i - 1].stage === 'final'
+      ? `${' '.repeat(5)}${'-'.repeat(width + 10)}\n` : '';
+    const next = cutLine + line(r);
     if (used + next.length + 1 > LIMITS.embedDescription - 120) break;
     out.push(next);
     used += next.length + 1;

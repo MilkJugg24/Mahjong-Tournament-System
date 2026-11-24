@@ -184,7 +184,7 @@ function standingRows(standings, players, precision) {
   const rows = [['rank', 'player_id', 'name', 'club', 'tournament_score',
     'hanchan_played', 'firsts', 'seconds', 'thirds', 'fourths', 'best_hanchan',
     'average_placement', 'byes', 'bye_total', 'carry_over', 'penalty_total',
-    'raw_delta', 'needs_tiebreak']];
+    'raw_delta', 'needs_tiebreak', 'stage']];
   for (const s of standings) {
     rows.push([
       s.rank, s.playerId, s.name, clubs.get(s.playerId) || '',
@@ -195,6 +195,8 @@ function standingRows(standings, players, precision) {
       s.byes, s.byeTotal.toFixed(precision), s.carryOver.toFixed(precision),
       s.penaltyTotal.toFixed(precision), s.rawDelta.toFixed(precision),
       s.needsCoinToss ? 'yes' : '',
+      // After a cut, the overall file mixes two stages: which score this is.
+      s.stage || '',
     ]);
   }
   return rows;

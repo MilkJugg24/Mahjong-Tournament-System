@@ -1186,9 +1186,14 @@ function renderStandings() {
   const anyBye = rows.some((r) => r.byes);
   const prec = state.store.rules.scorePrecision;
 
-  const body = rows.map((r) => {
+  const columns = 12 + (anyBye ? 1 : 0) + (anyCarry ? 1 : 0);
+  const body = rows.map((r, i) => {
     const p = players.get(r.playerId) || {};
-    return `<tr>
+    const cutLine = r.stage === 'qualifying' && i > 0 && rows[i - 1].stage === 'final'
+      ? `<tr><td colspan="${columns}" class="small muted" style="padding-top:14px">`
+        + 'Did not make the cut &mdash; placed by qualifying score</td></tr>'
+      : '';
+    return `${cutLine}<tr>
     <td class="num ${r.rank === 1 ? 'rank1' : ''}">${r.rank}${r.needsCoinToss ? '*' : ''}</td>
     <td>${esc(r.name)}${p.status && p.status !== 'active'
       ? ` <span class="chip bad">${esc(p.status)}</span>` : ''}</td>
@@ -1221,6 +1226,10 @@ function renderStandings() {
     ${anyTie ? '<p class="small" style="color:var(--warn);margin-top:10px">* Still level after every '
       + 'tiebreaker. WRC settles this with a coin toss &mdash; record the result as a manual '
       + 'tiebreak on the Players tab.</p>' : ''}
+    ${rows.some((r) => r.stage) ? `<p class="small muted">After the cut, Overall is how the
+      event finished: the finalists in their finals order, then everyone else by their
+      qualifying score.${rows.some((r) => r.stage === 'final' && !r.hanchanPlayed)
+    ? ' No final hanchan has been scored yet, so the finalists stand in seeding order.' : ''}</p>` : ''}
     <p class="small muted" style="margin-bottom:0">Ranked by score, then most firsts, fewest lasts,
       best single hanchan, then any manual tiebreak.</p>
   </div>`;

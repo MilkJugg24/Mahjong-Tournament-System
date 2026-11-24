@@ -219,7 +219,8 @@ const EXPECTED_HEADERS = {
   'standings.csv':
     ['rank', 'player_id', 'name', 'club', 'tournament_score', 'hanchan_played',
       'firsts', 'seconds', 'thirds', 'fourths', 'best_hanchan', 'average_placement',
-      'byes', 'bye_total', 'carry_over', 'penalty_total', 'raw_delta', 'needs_tiebreak'],
+      'byes', 'bye_total', 'carry_over', 'penalty_total', 'raw_delta', 'needs_tiebreak',
+      'stage'],
   'tournament.csv': ['setting', 'value'],
 };
 

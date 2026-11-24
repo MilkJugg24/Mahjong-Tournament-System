@@ -138,8 +138,9 @@ test('the built file runs a whole tournament from file://', { skip: SKIP }, asyn
     await t.test('a tournament and roster can be created', async () => {
       await createTournament(page);
       const lede = await page.textContent('#playerLede');
-      assert.match(lede, /8 playing/);
+      assert.match(lede, /8 ranked/);
       assert.match(lede, /2 tables/);
+      assert.match(lede, /tables fill exactly/);
     });
 
     await t.test('seating is drawn', async () => {

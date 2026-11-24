@@ -483,6 +483,59 @@ test('finals can carry half', () => {
   }
 });
 
+/* A reset final won narrowly by the lowest seed, over a big qualifying lead. */
+function upsetFinal() {
+  const store = qualified8();
+  const seeds = store.standings('qualifying').slice(0, 4).map((s) => s.playerId);
+  store.applyCut({ size: 4, carry: 'reset', rounds: 1 });
+  const final = store.generateRound({ phase: 'final' });
+  const lastSeed = seeds[3];
+  const order = [lastSeed, ...final.tables[0].seats.map((s) => s.playerId)
+    .filter((id) => id !== lastSeed)];
+  store.saveTable(final.id, final.tables[0].tableNumber,
+    order.map((playerId, i) => ({ playerId, rawScore: [30500, 30000, 29900, 29600][i] })));
+  store.closeRound(final.id);
+  return { store, seeds, lastSeed };
+}
+
+test('the final decides the overall winner under a reset', () => {
+  // Overall used to add qualifying and finals together, which gave first place
+  // to a top seed who lost the final.
+  const { store, seeds, lastSeed } = upsetFinal();
+  const overall = store.standings('overall');
+  assert.equal(overall[0].playerId, lastSeed);
+  assert.equal(overall[0].stage, 'final');
+  assert.deepEqual(new Set(overall.slice(0, 4).map((s) => s.playerId)), new Set(seeds));
+});
+
+test('nobody who missed the cut ranks above a finalist', () => {
+  const { store } = upsetFinal();
+  const overall = store.standings('overall');
+  assert.deepEqual(overall.map((s) => s.stage),
+    ['final', 'final', 'final', 'final',
+      'qualifying', 'qualifying', 'qualifying', 'qualifying']);
+  assert.ok(overall.slice(4).every((s) => s.rank >= 5));
+});
+
+test('before a final is scored, the finalists stand in seeding order', () => {
+  const store = qualified8();
+  const seeds = store.standings('qualifying').slice(0, 4);
+  store.applyCut({ size: 4, carry: 'reset', rounds: 1 });
+  const overall = store.standings('overall').slice(0, 4);
+  assert.deepEqual(overall.map((s) => s.playerId), seeds.map((s) => s.playerId));
+  assert.deepEqual(overall.map((s) => s.rank), seeds.map((s) => s.rank),
+    'not four players tied on zero');
+});
+
+test('standings.csv says which stage each score comes from', () => {
+  const { buildAll } = require('../src/backup.js');
+  const { store } = upsetFinal();
+  const rows = buildAll(store)['standings.csv'];
+  const stage = rows[0].indexOf('stage');
+  assert.equal(rows[1][stage], 'final');
+  assert.equal(rows[rows.length - 1][stage], 'qualifying');
+});
+
 test('cannot undo a cut once finals are seated', () => {
   const store = newStore();
   addPlayers(store, 8);

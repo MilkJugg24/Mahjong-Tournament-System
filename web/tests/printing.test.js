@@ -128,3 +128,34 @@ test('player names are escaped in every view', () => {
   assert.ok(!html.includes('<script>alert(1)</script>'));
   assert.match(html, /&lt;script&gt;/);
 });
+
+/* ------------------------------------------------ free play beside a final */
+
+function finalWithFreePlay() {
+  const s = store(12);
+  const round = s.generateRound();
+  const patterns = [[45000, 32000, 25000, 18000], [40000, 31000, 26000, 23000],
+    [42000, 33000, 24000, 21000]];
+  for (const [i, table] of s.getRound(round.id).tables.entries()) {
+    s.saveTable(round.id, table.tableNumber,
+      table.seats.map((seat, k) => ({ playerId: seat.playerId, rawScore: patterns[i][k] })));
+  }
+  s.closeRound(round.id);
+  s.applyCut({ size: 4, carry: 'reset', rounds: 1 });
+  return { s, final: s.generateRound({ phase: 'final' }) };
+}
+
+test('free-play tables get no report sheet', () => {
+  const { s, final } = finalWithFreePlay();
+  const html = printPage(s, 'scoresheets', { roundId: final.id });
+  assert.equal((html.match(/<h2>Table \d+<\/h2>/g) || []).length, 1,
+    'only the final table has anything to report');
+});
+
+test('the printed seating marks the free-play tables', () => {
+  const { s, final } = finalWithFreePlay();
+  const html = printPage(s, 'seating', { roundId: final.id });
+  assert.match(html, /2 \(free play\)/);
+  assert.match(html, /3 \(free play\)/);
+  assert.doesNotMatch(html, /1 \(free play\)/);
+});

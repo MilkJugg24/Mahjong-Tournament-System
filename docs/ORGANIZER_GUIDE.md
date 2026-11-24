@@ -160,8 +160,10 @@ checksum accounts for them, and they are carried into the standings exactly as
 the rules require.
 
 A table whose scores do not add up cannot be saved by mistake; the message says
-how far out it is. If the paperwork genuinely is wrong and you need to record it
-anyway, that is a deliberate override, not an accident.
+how far out it is. If the signed sheet genuinely says that, and you need to record
+it as it is, **Record as signed** appears under the preview once all four scores
+are in. It asks you to confirm, the table is marked *Recorded as signed* from
+then on, and the log keeps the entry.
 
 Chombo and penalties are under **Chombo and penalties** on the same sheet. A
 chombo takes 30P off that player's tournament score and does not change the

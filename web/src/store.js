@@ -557,6 +557,8 @@ class TournamentStore {
           enteredBy: tb.enteredBy,
           verifiedBy: tb.verifiedBy,
           lobby: tb.lobby,
+          overridden: Boolean(tb.overridden),
+          freePlay: Boolean(tb.freePlay),
           seats,
           outcome: this.tableOutcome(rules, tb, seats),
         };
@@ -855,6 +857,9 @@ class TournamentStore {
     table.status = verifiedBy ? 'verified' : 'entered';
     table.enteredBy = String(enteredBy).trim();
     table.verifiedBy = String(verifiedBy).trim();
+    // Recorded as the signed sheet says, although it does not add up. Kept on
+    // the table so it stays visible, and in the log so it can be found later.
+    table.overridden = blocking.length > 0;
     table.updatedAt = now();
 
     this.changed('table_saved', {
@@ -865,6 +870,7 @@ class TournamentStore {
       enteredBy: table.enteredBy,
       scores: Object.fromEntries(seats.map((s) => [s.playerId, s.rawScore])),
       issues: outcome.issues,
+      overridden: table.overridden,
     });
     return this.getRound(round.id);
   }
@@ -875,6 +881,7 @@ class TournamentStore {
     if (!table) throw new StoreError(`Table ${tableNumber} does not exist in this round.`);
     table.results = {};
     table.riichiLeft = 0;
+    table.overridden = false;
     table.status = 'pending';
     table.enteredBy = '';
     table.verifiedBy = '';

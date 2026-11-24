@@ -18,14 +18,14 @@
     RT:FILE scoring.js   line   1040  Scoring engine -- World Riichi Championship 2025.  <-- the arithmetic
     RT:FILE seating.js   line   1807  Seating and pairing engine.
     RT:FILE store.js     line   2447  Tournament operations -- the layer the interface sits on.
-    RT:FILE backup.js    line   3745  Backups: the CSV files, the folder on disk, and restore points.
-    RT:FILE persist.js   line   4480  The working copy: IndexedDB.
-    RT:FILE printing.js  line   4717  Printable pages.
-    RT:FILE discord.js   line   5032  Posting pairings and standings to a Discord channel.
-    RT:FILE help.js      line   5286  Help content: the help page, and the text behind every "?" bubble.
-    RT:FILE testdata.js  line   5579  Made-up rosters and made-up scores, for trying the program out.
-    RT:FILE tutorial.js  line   5705  The guided tutorial: a demo tournament that plays itself while ...
-    RT:FILE ui.js        line   6171  The browser interface.
+    RT:FILE backup.js    line   3752  Backups: the CSV files, the folder on disk, and restore points.
+    RT:FILE persist.js   line   4487  The working copy: IndexedDB.
+    RT:FILE printing.js  line   4724  Printable pages.
+    RT:FILE discord.js   line   5039  Posting pairings and standings to a Discord channel.
+    RT:FILE help.js      line   5293  Help content: the help page, and the text behind every "?" bubble.
+    RT:FILE testdata.js  line   5586  Made-up rosters and made-up scores, for trying the program out.
+    RT:FILE tutorial.js  line   5712  The guided tutorial: a demo tournament that plays itself while ...
+    RT:FILE ui.js        line   6178  The browser interface.
 
     To check how a score was worked out, read scoring.js: the formula is
     written out at the top of it, and rational.js is the exact arithmetic
@@ -3005,6 +3005,8 @@ class TournamentStore {
           enteredBy: tb.enteredBy,
           verifiedBy: tb.verifiedBy,
           lobby: tb.lobby,
+          overridden: Boolean(tb.overridden),
+          freePlay: Boolean(tb.freePlay),
           seats,
           outcome: this.tableOutcome(rules, tb, seats),
         };
@@ -3303,6 +3305,9 @@ class TournamentStore {
     table.status = verifiedBy ? 'verified' : 'entered';
     table.enteredBy = String(enteredBy).trim();
     table.verifiedBy = String(verifiedBy).trim();
+    // Recorded as the signed sheet says, although it does not add up. Kept on
+    // the table so it stays visible, and in the log so it can be found later.
+    table.overridden = blocking.length > 0;
     table.updatedAt = now();
 
     this.changed('table_saved', {
@@ -3313,6 +3318,7 @@ class TournamentStore {
       enteredBy: table.enteredBy,
       scores: Object.fromEntries(seats.map((s) => [s.playerId, s.rawScore])),
       issues: outcome.issues,
+      overridden: table.overridden,
     });
     return this.getRound(round.id);
   }
@@ -3323,6 +3329,7 @@ class TournamentStore {
     if (!table) throw new StoreError(`Table ${tableNumber} does not exist in this round.`);
     table.results = {};
     table.riichiLeft = 0;
+    table.overridden = false;
     table.status = 'pending';
     table.enteredBy = '';
     table.verifiedBy = '';
@@ -7186,6 +7193,7 @@ function tableCard(table) {
 
   const issues = table.outcome && table.outcome.issues.length
     ? `<p class="small" style="margin:6px 0 0;color:var(--${table.outcome.ok ? 'warn' : 'danger'})">`
+      + `${table.overridden ? '<strong>Recorded as signed.</strong> ' : ''}`
       + `${esc(table.outcome.issues[0].message)}</p>`
     : '';
 
@@ -7382,11 +7390,45 @@ function openEntry(tableNumber) {
           + `<div class="preview"><table><thead><tr><th>#</th><th>Player</th>
             <th class="num">Delta</th><th class="num">Uma</th>${hasOka ? '<th class="num">Oka</th>' : ''}
             <th class="num">Hanchan</th></tr></thead><tbody>${body}</tbody></table></div>`;
+        // The deliberate way past the check, for a sheet that is signed as it is.
+        if (!out.ok) {
+          $('#ePreview').insertAdjacentHTML('beforeend', `<div class="btnrow" style="margin-top:8px">
+            <button class="danger" id="eOverride">Record as signed</button>
+            <span class="small muted">Only if the signed sheet really says this. The table is
+              marked, and the log keeps it.</span></div>`);
+          $('#eOverride').addEventListener('click', () => confirmThen(
+            `Record table ${tableNumber} as signed, although it does not add up?`,
+            () => save(true)));
+        }
       } catch (err) {
         $('#ePreview').innerHTML = `<div class="issue error">${esc(err.message)}</div>`;
       }
     }, 120);
   }
+
+  /* allowIssues: record the table as the signed sheet says although it does
+   * not add up -- only ever from the deliberate "Record as signed" button. */
+  const save = (allowIssues = false) => guard(() => {
+    const entries = collect();
+    if (entries.length !== inputs.length) {
+      return toast('Every player at the table needs a score.', 'warn');
+    }
+    if (online && $('#eLobby')) {
+      state.store.setTableLobby(rnd.id, tableNumber, $('#eLobby').value);
+    }
+    state.round = state.store.saveTable(rnd.id, tableNumber, entries, {
+      riichiLeft: num($('#eRiichi').value),
+      enteredBy: $('#eBy').value,
+      allowIssues,
+    });
+    loadStandings();
+    closeSheet();
+    render();
+    toast(allowIssues
+      ? `Table ${tableNumber} recorded as signed. It is marked on the table and in the log.`
+      : `Table ${tableNumber} saved.`);
+    return null;
+  });
 
   inputs.forEach((input, index) => {
     input.addEventListener('input', () => { refreshChecksum(); schedulePreview(); });
@@ -7405,24 +7447,7 @@ function openEntry(tableNumber) {
   const firstBlank = inputs.find((i) => i.value === '');
   if (firstBlank) firstBlank.focus();
 
-  $('#eSave').addEventListener('click', () => guard(() => {
-    const entries = collect();
-    if (entries.length !== inputs.length) {
-      return toast('Every player at the table needs a score.', 'warn');
-    }
-    if (online && $('#eLobby')) {
-      state.store.setTableLobby(rnd.id, tableNumber, $('#eLobby').value);
-    }
-    state.round = state.store.saveTable(rnd.id, tableNumber, entries, {
-      riichiLeft: num($('#eRiichi').value),
-      enteredBy: $('#eBy').value,
-    });
-    loadStandings();
-    closeSheet();
-    render();
-    toast(`Table ${tableNumber} saved.`);
-    return null;
-  }));
+  $('#eSave').addEventListener('click', () => save());
 
   $('#eVerify').addEventListener('click', () => {
     const who = window.prompt('Verified by (referee or staff name):', $('#eBy').value || '');

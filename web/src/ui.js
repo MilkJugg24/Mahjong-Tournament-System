@@ -1014,6 +1014,7 @@ function tableCard(table) {
 
   const issues = table.outcome && table.outcome.issues.length
     ? `<p class="small" style="margin:6px 0 0;color:var(--${table.outcome.ok ? 'warn' : 'danger'})">`
+      + `${table.overridden ? '<strong>Recorded as signed.</strong> ' : ''}`
       + `${esc(table.outcome.issues[0].message)}</p>`
     : '';
 
@@ -1210,11 +1211,45 @@ function openEntry(tableNumber) {
           + `<div class="preview"><table><thead><tr><th>#</th><th>Player</th>
             <th class="num">Delta</th><th class="num">Uma</th>${hasOka ? '<th class="num">Oka</th>' : ''}
             <th class="num">Hanchan</th></tr></thead><tbody>${body}</tbody></table></div>`;
+        // The deliberate way past the check, for a sheet that is signed as it is.
+        if (!out.ok) {
+          $('#ePreview').insertAdjacentHTML('beforeend', `<div class="btnrow" style="margin-top:8px">
+            <button class="danger" id="eOverride">Record as signed</button>
+            <span class="small muted">Only if the signed sheet really says this. The table is
+              marked, and the log keeps it.</span></div>`);
+          $('#eOverride').addEventListener('click', () => confirmThen(
+            `Record table ${tableNumber} as signed, although it does not add up?`,
+            () => save(true)));
+        }
       } catch (err) {
         $('#ePreview').innerHTML = `<div class="issue error">${esc(err.message)}</div>`;
       }
     }, 120);
   }
+
+  /* allowIssues: record the table as the signed sheet says although it does
+   * not add up -- only ever from the deliberate "Record as signed" button. */
+  const save = (allowIssues = false) => guard(() => {
+    const entries = collect();
+    if (entries.length !== inputs.length) {
+      return toast('Every player at the table needs a score.', 'warn');
+    }
+    if (online && $('#eLobby')) {
+      state.store.setTableLobby(rnd.id, tableNumber, $('#eLobby').value);
+    }
+    state.round = state.store.saveTable(rnd.id, tableNumber, entries, {
+      riichiLeft: num($('#eRiichi').value),
+      enteredBy: $('#eBy').value,
+      allowIssues,
+    });
+    loadStandings();
+    closeSheet();
+    render();
+    toast(allowIssues
+      ? `Table ${tableNumber} recorded as signed. It is marked on the table and in the log.`
+      : `Table ${tableNumber} saved.`);
+    return null;
+  });
 
   inputs.forEach((input, index) => {
     input.addEventListener('input', () => { refreshChecksum(); schedulePreview(); });
@@ -1233,24 +1268,7 @@ function openEntry(tableNumber) {
   const firstBlank = inputs.find((i) => i.value === '');
   if (firstBlank) firstBlank.focus();
 
-  $('#eSave').addEventListener('click', () => guard(() => {
-    const entries = collect();
-    if (entries.length !== inputs.length) {
-      return toast('Every player at the table needs a score.', 'warn');
-    }
-    if (online && $('#eLobby')) {
-      state.store.setTableLobby(rnd.id, tableNumber, $('#eLobby').value);
-    }
-    state.round = state.store.saveTable(rnd.id, tableNumber, entries, {
-      riichiLeft: num($('#eRiichi').value),
-      enteredBy: $('#eBy').value,
-    });
-    loadStandings();
-    closeSheet();
-    render();
-    toast(`Table ${tableNumber} saved.`);
-    return null;
-  }));
+  $('#eSave').addEventListener('click', () => save());
 
   $('#eVerify').addEventListener('click', () => {
     const who = window.prompt('Verified by (referee or staff name):', $('#eBy').value || '');

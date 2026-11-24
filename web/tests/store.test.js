@@ -325,6 +325,34 @@ test('an override lets a bad total through', () => {
   assert.equal(out.tables.find((t) => t.tableNumber === 1).outcome.ok, false);
 });
 
+test('a table recorded over a failed check is marked, and logged', () => {
+  const store = newStore();
+  const round = seededTable(store);
+  const out = store.saveTable(round.id, 1, entriesFor(round, [45000, 32000, 25000, 19000]),
+    { allowIssues: true });
+  assert.equal(out.tables.find((t) => t.tableNumber === 1).overridden, true);
+  const logged = store.events(1)[0];
+  assert.equal(logged.kind, 'table_saved');
+  assert.equal(logged.payload.overridden, true);
+});
+
+test('a table that adds up is not marked, even with the override allowed', () => {
+  const store = newStore();
+  const round = seededTable(store);
+  const out = store.saveTable(round.id, 1, entriesFor(round, [45000, 32000, 25000, 18000]),
+    { allowIssues: true });
+  assert.equal(out.tables.find((t) => t.tableNumber === 1).overridden, false);
+});
+
+test('clearing a table drops the mark', () => {
+  const store = newStore();
+  const round = seededTable(store);
+  store.saveTable(round.id, 1, entriesFor(round, [45000, 32000, 25000, 19000]),
+    { allowIssues: true });
+  const out = store.clearTable(round.id, 1);
+  assert.equal(out.tables.find((t) => t.tableNumber === 1).overridden, false);
+});
+
 test('a missing score is rejected', () => {
   const store = newStore();
   const round = seededTable(store);

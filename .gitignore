@@ -1,8 +1,5 @@
-# Tournament data: created at runtime, never committed.
-data/
-*.db
-*.db-wal
-*.db-shm
+# Playwright, if installed locally to run the browser tests.
+node_modules/
 
 # Editors and OS
 .DS_Store

@@ -18,14 +18,14 @@
     RT:FILE scoring.js   line   1027  Scoring engine -- World Riichi Championship 2025.  <-- the arithmetic
     RT:FILE seating.js   line   1794  Seating and pairing engine.
     RT:FILE store.js     line   2434  Tournament operations -- the layer the interface sits on.
-    RT:FILE backup.js    line   3541  Backups: the CSV files, the folder on disk, and restore points.
-    RT:FILE persist.js   line   4189  The working copy: IndexedDB.
-    RT:FILE printing.js  line   4426  Printable pages.
-    RT:FILE discord.js   line   4736  Posting pairings and standings to a Discord channel.
-    RT:FILE help.js      line   4987  Help content: the help page, and the text behind every "?" bubble.
-    RT:FILE testdata.js  line   5269  Made-up rosters and made-up scores, for trying the program out.
-    RT:FILE tutorial.js  line   5395  The guided tutorial: a demo tournament that plays itself while ...
-    RT:FILE ui.js        line   5861  The browser interface.
+    RT:FILE backup.js    line   3587  Backups: the CSV files, the folder on disk, and restore points.
+    RT:FILE persist.js   line   4235  The working copy: IndexedDB.
+    RT:FILE printing.js  line   4472  Printable pages.
+    RT:FILE discord.js   line   4782  Posting pairings and standings to a Discord channel.
+    RT:FILE help.js      line   5033  Help content: the help page, and the text behind every "?" bubble.
+    RT:FILE testdata.js  line   5316  Made-up rosters and made-up scores, for trying the program out.
+    RT:FILE tutorial.js  line   5442  The guided tutorial: a demo tournament that plays itself while ...
+    RT:FILE ui.js        line   5908  The browser interface.
 
     To check how a score was worked out, read scoring.js: the formula is
     written out at the top of it, and rational.js is the exact arithmetic
@@ -2765,6 +2765,51 @@ class TournamentStore {
     return active.filter((p) => qualified.has(p.id));
   }
 
+  /**
+   * How a field divides into tables, before anyone is drawn.
+   *
+   * Sit-ins are there to make up the last table, so they are seated only when
+   * there are enough of them to complete it. Otherwise they would take seats
+   * from ranked players, who would then sit out on a bye: 32 ranked players
+   * and three sit-ins would leave three ranked players out every round so that
+   * the sit-ins could play. When the ranked field fills its tables on its own,
+   * or the sit-ins on hand cannot complete the last one, none are used.
+   */
+  fieldPlan(players = this.playingPlayers()) {
+    const ppt = this.rules.playersPerTable;
+    const ranked = players.filter((p) => p.role !== 'sit_in').length;
+    const onHand = players.filter((p) => p.role === 'sit_in').length;
+    const short = (ppt - (ranked % ppt)) % ppt;
+    const used = short && onHand >= short ? short : 0;
+    return {
+      ranked,
+      sitInsOnHand: onHand,
+      sitInsUsed: used,
+      tables: Math.floor((ranked + used) / ppt),
+      sittingOut: (ranked + used) % ppt,
+      short,
+    };
+  }
+
+  /** The draw's pool: every ranked player, plus only the sit-ins a table needs. */
+  withSitInsAsNeeded(pool) {
+    const { sitInsUsed } = this.fieldPlan(pool);
+    const ranked = pool.filter((p) => p.role !== 'sit_in');
+    if (!sitInsUsed) return ranked;
+    // Spread the work: the sit-ins who have been seated least go in first.
+    const seated = new Map();
+    for (const round of this.require().rounds) {
+      for (const table of round.tables) {
+        for (const s of table.seats) {
+          if (s.playerId !== null) seated.set(s.playerId, (seated.get(s.playerId) || 0) + 1);
+        }
+      }
+    }
+    const sitIns = pool.filter((p) => p.role === 'sit_in')
+      .sort((a, b) => (seated.get(a.id) || 0) - (seated.get(b.id) || 0) || a.id - b.id);
+    return ranked.concat(sitIns.slice(0, sitInsUsed));
+  }
+
   byeScoresFor(byes) {
     if (!byes.length) return {};
     const rules = this.rules;
@@ -2811,6 +2856,7 @@ class TournamentStore {
     let pool;
     if (playerIds === null) {
       pool = this.phasePool(phase);
+      if (phase !== 'final') pool = this.withSitInsAsNeeded(pool);
     } else {
       const known = new Map(t.players.map((p) => [p.id, p]));
       pool = playerIds.map((i) => known.get(Number(i))).filter(Boolean);
@@ -5017,7 +5063,8 @@ const FIELD_HELP = {
 
   'player-role': 'A ranked player appears in the standings. A sit-in fills an empty '
     + 'seat so a table can play, but is never ranked -- use it for a club member who '
-    + 'steps in to make up a four.',
+    + 'steps in to make up a four. Sit-ins are only seated when they complete a '
+    + 'table; when the ranked players fill the tables on their own, they sit out.',
 
   'player-status': 'Withdrawn players keep the results they have already earned but '
     + 'are left out of every future draw. Use this rather than deleting someone who '
@@ -6428,20 +6475,8 @@ function saveSetup() {
 function renderPlayers() {
   const t = state.store.doc;
   if (!t) return;
-  const ppt = num(t.rules.playersPerTable) || 4;
   const players = state.store.listPlayers();
-  const active = players.filter((p) => p.status === 'active');
-  const ranked = active.filter((p) => p.role === 'player');
-  const tables = Math.floor(active.length / ppt);
-  const sitting = active.length % ppt;
-
-  $('#playerLede').innerHTML =
-    `${active.length} playing &middot; ${ranked.length} ranked &middot; `
-    + `<strong>${tables} table${tables === 1 ? '' : 's'}</strong>`
-    + (sitting
-      ? ` &middot; <strong>${sitting} sitting out each round</strong> (add ${ppt - sitting} more,`
-        + ` or ${sitting} sit-in${sitting === 1 ? '' : 's'}, to fill the tables)`
-      : ' &middot; tables fill exactly');
+  $('#playerLede').innerHTML = fieldSummary(state.store.fieldPlan());
 
   const sel = (a, b) => (a === b ? ' selected' : '');
   const rows = players.map((p) => `
@@ -6496,7 +6531,8 @@ function renderPlayers() {
       <th class="num" title="Used only to settle a tie a coin toss decided">Tiebreak</th><th></th></tr></thead>
       <tbody>${rows}</tbody></table></div>
       <p class="small muted" style="margin-top:10px">A <strong>sit-in</strong> fills a table but is
-      not ranked &mdash; the ARA guide suggests keeping three on hand for uneven fields.
+      not ranked, and is only seated when they complete a table that would otherwise be
+      short &mdash; the ARA guide suggests keeping three on hand for uneven fields.
       Withdrawing keeps a player's results; deleting is only possible before they have played.</p>`
     : '<p class="muted">Nobody on the roster yet.</p>'}
   </div>`;
@@ -6564,6 +6600,29 @@ function renderPlayers() {
       render();
       toast('Player removed.');
     }))));
+}
+
+/** One line on how the field divides, and what would fill the last table. */
+function fieldSummary(plan) {
+  const s = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+  let line = `${plan.ranked} ranked`
+    + (plan.sitInsOnHand ? ` &middot; ${s(plan.sitInsOnHand, 'sit-in')} on hand` : '')
+    + ` &middot; <strong>${s(plan.tables, 'table')}</strong>`;
+  if (plan.sittingOut) {
+    const more = plan.short - plan.sitInsOnHand;
+    line += ` &middot; <strong>${plan.sittingOut} sitting out each round</strong>`
+      + ` (add ${s(plan.short, 'more player')}, or ${s(more, 'more sit-in')},`
+      + ' to fill the last table)';
+  } else if (plan.sitInsUsed) {
+    const spare = plan.sitInsOnHand - plan.sitInsUsed;
+    line += ` &middot; ${s(plan.sitInsUsed, 'sit-in')} make${plan.sitInsUsed === 1 ? 's' : ''}`
+      + ' up the last table'
+      + (spare ? `; ${spare} not needed` : '');
+  } else {
+    line += ' &middot; tables fill exactly'
+      + (plan.sitInsOnHand ? ', so the sit-ins are not needed' : '');
+  }
+  return line;
 }
 
 /* --------------------------------------------------------------- round */

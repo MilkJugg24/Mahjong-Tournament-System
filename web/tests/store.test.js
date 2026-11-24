@@ -445,6 +445,70 @@ test('sit-ins are not ranked', () => {
   assert.equal(ranked.length, 7);
 });
 
+function withSitIns(ranked, sitIns) {
+  const store = newStore();
+  addPlayers(store, ranked);
+  for (let i = 1; i <= sitIns; i++) store.addPlayer(`Sit-in ${i}`, { role: 'sit_in' });
+  return store;
+}
+
+const seatedIn = (round) => round.tables.flatMap((t) => t.seats.map((s) => s.playerId));
+const sitInIds = (store) => new Set(store.listPlayers()
+  .filter((p) => p.role === 'sit_in').map((p) => p.id));
+
+test('sit-ins do not take seats from a field that fills its own tables', () => {
+  // The bug this pins: 32 ranked and three sit-ins left three ranked players
+  // out on a bye every round, so that the sit-ins could play.
+  const store = withSitIns(32, 3);
+  const round = store.generateRound();
+  assert.equal(round.byes.length, 0, 'no ranked player should sit out');
+  assert.equal(round.tables.length, 8);
+  const subs = sitInIds(store);
+  assert.ok(!seatedIn(round).some((id) => subs.has(id)), 'no sit-in should be seated');
+});
+
+test('sit-ins make up the last table when there are enough of them', () => {
+  const store = withSitIns(30, 3);
+  const round = store.generateRound();
+  assert.equal(round.byes.length, 0);
+  assert.equal(round.tables.length, 8);
+  const subs = sitInIds(store);
+  assert.equal(seatedIn(round).filter((id) => subs.has(id)).length, 2,
+    'exactly the two sit-ins the last table needs');
+});
+
+test('too few sit-ins to complete a table leaves them out', () => {
+  // 29 ranked need three to complete the eighth table; one sit-in cannot, and
+  // seating it would only turn one ranked bye into two.
+  const store = withSitIns(29, 1);
+  const round = store.generateRound();
+  assert.equal(round.tables.length, 7);
+  assert.equal(round.byes.length, 1);
+  const subs = sitInIds(store);
+  assert.ok(!round.byes.some((b) => subs.has(b.playerId)));
+  assert.ok(!seatedIn(round).some((id) => subs.has(id)));
+});
+
+test('the sit-in who has played least goes in first', () => {
+  const store = withSitIns(31, 2);
+  const first = store.generateRound();
+  playRound(store, first.id);
+  store.closeRound(first.id);
+  const second = store.generateRound();
+  const subs = sitInIds(store);
+  const a = seatedIn(first).find((id) => subs.has(id));
+  const b = seatedIn(second).find((id) => subs.has(id));
+  assert.ok(a && b && a !== b, 'the work should rotate between the sit-ins');
+});
+
+test('the field plan says what fills the last table', () => {
+  assert.deepEqual(withSitIns(63, 0).fieldPlan(), {
+    ranked: 63, sitInsOnHand: 0, sitInsUsed: 0, tables: 15, sittingOut: 3, short: 1,
+  });
+  assert.equal(withSitIns(63, 3).fieldPlan().sitInsUsed, 1);
+  assert.equal(withSitIns(64, 3).fieldPlan().sitInsUsed, 0);
+});
+
 /* -------------------------------------------------------- bookkeeping */
 
 test('the event log records every change', () => {

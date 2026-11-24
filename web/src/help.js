@@ -29,7 +29,8 @@ const FIELD_HELP = {
 
   'player-role': 'A ranked player appears in the standings. A sit-in fills an empty '
     + 'seat so a table can play, but is never ranked -- use it for a club member who '
-    + 'steps in to make up a four.',
+    + 'steps in to make up a four. Sit-ins are only seated when they complete a '
+    + 'table; when the ranked players fill the tables on their own, they sit out.',
 
   'player-status': 'Withdrawn players keep the results they have already earned but '
     + 'are left out of every future draw. Use this rather than deleting someone who '

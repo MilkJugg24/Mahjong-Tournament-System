@@ -566,20 +566,8 @@ function saveSetup() {
 function renderPlayers() {
   const t = state.store.doc;
   if (!t) return;
-  const ppt = num(t.rules.playersPerTable) || 4;
   const players = state.store.listPlayers();
-  const active = players.filter((p) => p.status === 'active');
-  const ranked = active.filter((p) => p.role === 'player');
-  const tables = Math.floor(active.length / ppt);
-  const sitting = active.length % ppt;
-
-  $('#playerLede').innerHTML =
-    `${active.length} playing &middot; ${ranked.length} ranked &middot; `
-    + `<strong>${tables} table${tables === 1 ? '' : 's'}</strong>`
-    + (sitting
-      ? ` &middot; <strong>${sitting} sitting out each round</strong> (add ${ppt - sitting} more,`
-        + ` or ${sitting} sit-in${sitting === 1 ? '' : 's'}, to fill the tables)`
-      : ' &middot; tables fill exactly');
+  $('#playerLede').innerHTML = fieldSummary(state.store.fieldPlan());
 
   const sel = (a, b) => (a === b ? ' selected' : '');
   const rows = players.map((p) => `
@@ -634,7 +622,8 @@ function renderPlayers() {
       <th class="num" title="Used only to settle a tie a coin toss decided">Tiebreak</th><th></th></tr></thead>
       <tbody>${rows}</tbody></table></div>
       <p class="small muted" style="margin-top:10px">A <strong>sit-in</strong> fills a table but is
-      not ranked &mdash; the ARA guide suggests keeping three on hand for uneven fields.
+      not ranked, and is only seated when they complete a table that would otherwise be
+      short &mdash; the ARA guide suggests keeping three on hand for uneven fields.
       Withdrawing keeps a player's results; deleting is only possible before they have played.</p>`
     : '<p class="muted">Nobody on the roster yet.</p>'}
   </div>`;
@@ -702,6 +691,29 @@ function renderPlayers() {
       render();
       toast('Player removed.');
     }))));
+}
+
+/** One line on how the field divides, and what would fill the last table. */
+function fieldSummary(plan) {
+  const s = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+  let line = `${plan.ranked} ranked`
+    + (plan.sitInsOnHand ? ` &middot; ${s(plan.sitInsOnHand, 'sit-in')} on hand` : '')
+    + ` &middot; <strong>${s(plan.tables, 'table')}</strong>`;
+  if (plan.sittingOut) {
+    const more = plan.short - plan.sitInsOnHand;
+    line += ` &middot; <strong>${plan.sittingOut} sitting out each round</strong>`
+      + ` (add ${s(plan.short, 'more player')}, or ${s(more, 'more sit-in')},`
+      + ' to fill the last table)';
+  } else if (plan.sitInsUsed) {
+    const spare = plan.sitInsOnHand - plan.sitInsUsed;
+    line += ` &middot; ${s(plan.sitInsUsed, 'sit-in')} make${plan.sitInsUsed === 1 ? 's' : ''}`
+      + ' up the last table'
+      + (spare ? `; ${spare} not needed` : '');
+  } else {
+    line += ' &middot; tables fill exactly'
+      + (plan.sitInsOnHand ? ', so the sit-ins are not needed' : '');
+  }
+  return line;
 }
 
 /* --------------------------------------------------------------- round */

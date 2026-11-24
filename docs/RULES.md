@@ -268,6 +268,10 @@ Not a WRC matter — fields are rarely a multiple of four. The ARA's answer is
 three sit-in players; where that is not possible, byes rotate so nobody sits out
 twice before everyone has sat out once.
 
+Sit-ins are seated only when there are enough of them to complete the last table.
+A field that fills its tables on its own leaves them out, so a sit-in never takes
+a seat from a ranked player and turns it into a bye.
+
 A bye scores either a **fixed amount** (0P by default) or the player's **own
 average so far**. The value is worked out when the round is drawn and stored, so
 it is auditable afterwards. Byes do not count as a hanchan played and do not

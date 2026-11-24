@@ -34,8 +34,11 @@ per table.
 The ARA suggests **1 tournament organiser, 1 judge per 8 tables, 1 runner**,
 plus **3 sit-in players** to fill tables when the field is uneven.
 
-Add your sit-ins to the roster with the role **Sit-in**. They fill tables and
-play normally, but they are never given a bye and never appear in the standings.
+Add your sit-ins to the roster with the role **Sit-in**. A sit-in is seated only
+when there are enough of them to complete the last table; when the ranked players
+fill their tables on their own, the sit-ins sit out. They never take a seat from a
+ranked player, and they never appear in the standings. When a round needs fewer
+sit-ins than you have, the ones who have played least go in first.
 
 ### Set the event up in advance
 
@@ -97,8 +100,8 @@ loses their history and is blocked once they have played.
 Check the player count on the Players tab before you draw. It tells you directly
 how the field divides, for example:
 
-> 63 playing · 63 ranked · **15 tables** · **3 sitting out each round**
-> (add 1 more, or 3 sit-ins, to fill the tables)
+> 63 ranked · **15 tables** · **3 sitting out each round**
+> (add 1 more player, or 1 more sit-in, to fill the last table)
 
 ### 2. Draw the seating
 

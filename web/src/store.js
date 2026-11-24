@@ -330,6 +330,51 @@ class TournamentStore {
     return active.filter((p) => qualified.has(p.id));
   }
 
+  /**
+   * How a field divides into tables, before anyone is drawn.
+   *
+   * Sit-ins are there to make up the last table, so they are seated only when
+   * there are enough of them to complete it. Otherwise they would take seats
+   * from ranked players, who would then sit out on a bye: 32 ranked players
+   * and three sit-ins would leave three ranked players out every round so that
+   * the sit-ins could play. When the ranked field fills its tables on its own,
+   * or the sit-ins on hand cannot complete the last one, none are used.
+   */
+  fieldPlan(players = this.playingPlayers()) {
+    const ppt = this.rules.playersPerTable;
+    const ranked = players.filter((p) => p.role !== 'sit_in').length;
+    const onHand = players.filter((p) => p.role === 'sit_in').length;
+    const short = (ppt - (ranked % ppt)) % ppt;
+    const used = short && onHand >= short ? short : 0;
+    return {
+      ranked,
+      sitInsOnHand: onHand,
+      sitInsUsed: used,
+      tables: Math.floor((ranked + used) / ppt),
+      sittingOut: (ranked + used) % ppt,
+      short,
+    };
+  }
+
+  /** The draw's pool: every ranked player, plus only the sit-ins a table needs. */
+  withSitInsAsNeeded(pool) {
+    const { sitInsUsed } = this.fieldPlan(pool);
+    const ranked = pool.filter((p) => p.role !== 'sit_in');
+    if (!sitInsUsed) return ranked;
+    // Spread the work: the sit-ins who have been seated least go in first.
+    const seated = new Map();
+    for (const round of this.require().rounds) {
+      for (const table of round.tables) {
+        for (const s of table.seats) {
+          if (s.playerId !== null) seated.set(s.playerId, (seated.get(s.playerId) || 0) + 1);
+        }
+      }
+    }
+    const sitIns = pool.filter((p) => p.role === 'sit_in')
+      .sort((a, b) => (seated.get(a.id) || 0) - (seated.get(b.id) || 0) || a.id - b.id);
+    return ranked.concat(sitIns.slice(0, sitInsUsed));
+  }
+
   byeScoresFor(byes) {
     if (!byes.length) return {};
     const rules = this.rules;
@@ -376,6 +421,7 @@ class TournamentStore {
     let pool;
     if (playerIds === null) {
       pool = this.phasePool(phase);
+      if (phase !== 'final') pool = this.withSitInsAsNeeded(pool);
     } else {
       const known = new Map(t.players.map((p) => [p.id, p]));
       pool = playerIds.map((i) => known.get(Number(i))).filter(Boolean);

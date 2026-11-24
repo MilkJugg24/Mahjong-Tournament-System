@@ -639,52 +639,98 @@ class TournamentStore {
     return fresh;
   }
 
-  /** Swap two seated players, or move one into a bye slot. */
+  /**
+   * Change who sits where after the draw.
+   *
+   *   both seated          they swap seats
+   *   one seated, one bye  the bye player takes the seat and the other sits out,
+   *                        on the bye score already worked out for the round
+   *   one not in the round they take the seat and the other leaves the round
+   *                        with no score -- a late arrival, or a sit-in for a
+   *                        no-show. Nobody else at the table moves.
+   *
+   * A player whose table already has a score cannot be moved, and in a final
+   * round a finalist cannot be put on a free-play table.
+   */
   swapSeats(roundId, playerA, playerB) {
+    const t = this.require();
     const round = this.findRound(roundId);
     if (round.status === 'complete') {
       throw new StoreError('This round is closed. Reopen it before changing seats.');
     }
     const a = Number(playerA);
     const b = Number(playerB);
+    if (a === b) throw new StoreError('Choose two different players.');
 
     for (const pid of [a, b]) {
       if (round.tables.some((tb) => (tb.results || {})[pid] !== undefined)) {
         throw new StoreError(
-          'One of those players already has a score for this round. '
+          `${this.findPlayer(pid).name} already has a score for this round. `
           + 'Clear the table result before moving them.');
       }
     }
 
-    const seatOf = (pid) => {
-      for (const tb of round.tables) {
-        const seat = tb.seats.find((s) => s.playerId === pid);
-        if (seat) return seat;
+    const placeOf = (pid) => {
+      for (const table of round.tables) {
+        const seat = table.seats.find((s) => s.playerId === pid);
+        if (seat) return { table, seat };
       }
       return null;
     };
-    const seatA = seatOf(a);
-    const seatB = seatOf(b);
-    const byeA = round.byes.find((x) => x.playerId === a);
-    const byeB = round.byes.find((x) => x.playerId === b);
+    const at = { [a]: placeOf(a), [b]: placeOf(b) };
+    const bye = {
+      [a]: round.byes.find((x) => x.playerId === a),
+      [b]: round.byes.find((x) => x.playerId === b),
+    };
 
-    if (seatA && seatB) {
-      seatA.playerId = b;
-      seatB.playerId = a;
-    } else if (seatA && byeB) {
-      seatA.playerId = b;
-      round.byes = round.byes.filter((x) => x.playerId !== b);
-      round.byes.push({ playerId: a, score: byeB.score });
-    } else if (seatB && byeA) {
-      seatB.playerId = a;
-      round.byes = round.byes.filter((x) => x.playerId !== a);
-      round.byes.push({ playerId: b, score: byeA.score });
-    } else {
-      throw new StoreError(
-        'Both players must be in this round (seated or on a bye) to swap.');
+    // Where each would end up, checked before anything changes.
+    const finalists = new Set(((t.config.cut || {}).qualified || []).map(Number));
+    const refuseFreeSeat = (pid, place) => {
+      if (place && place.table.freePlay && finalists.has(pid)) {
+        throw new StoreError(
+          `${this.findPlayer(pid).name} is in the final and cannot be moved to a `
+          + 'free-play table.');
+      }
+    };
+
+    if (at[a] && at[b]) {
+      refuseFreeSeat(a, at[b]);
+      refuseFreeSeat(b, at[a]);
+      at[a].seat.playerId = b;
+      at[b].seat.playerId = a;
+      this.changed('seats_swapped', { roundId: round.id, a, b });
+      return this.getRound(round.id);
     }
 
-    this.changed('seats_swapped', { roundId: round.id, a, b });
+    const seated = at[a] ? a : (at[b] ? b : null);
+    if (seated === null) {
+      throw new StoreError('At least one of the two has to be seated in this round.');
+    }
+    const other = seated === a ? b : a;
+    const place = at[seated];
+
+    if (bye[other]) {
+      refuseFreeSeat(other, place);
+      place.seat.playerId = other;
+      round.byes = round.byes.filter((x) => x.playerId !== other);
+      round.byes.push({ playerId: seated, score: bye[other].score });
+      this.changed('seats_swapped', { roundId: round.id, a, b });
+      return this.getRound(round.id);
+    }
+
+    // Someone from outside the round takes the seat.
+    const arriving = this.findPlayer(other);
+    if (arriving.status !== 'active') {
+      throw new StoreError(
+        `${arriving.name} is marked ${arriving.status}. Set them back to playing on the `
+        + 'Players tab before seating them.');
+    }
+    refuseFreeSeat(other, place);
+    place.seat.playerId = other;
+    place.table.updatedAt = now();
+    this.changed('seat_substituted', {
+      roundId: round.id, table: place.table.tableNumber, out: seated, in: other,
+    });
     return this.getRound(round.id);
   }
 

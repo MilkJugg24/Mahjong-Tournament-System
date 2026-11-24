@@ -156,6 +156,82 @@ test('swap seats', () => {
   assert.equal(after.tables[1].seats[0].playerId, a);
 });
 
+const placeOf = (round, pid) => {
+  for (const t of round.tables) {
+    const s = t.seats.find((x) => x.playerId === pid);
+    if (s) return `${t.tableNumber}/${s.seatIndex}`;
+  }
+  return round.byes.some((b) => b.playerId === pid) ? 'bye' : null;
+};
+
+test('a late arrival takes a no-show\'s seat', () => {
+  const store = newStore();
+  addPlayers(store, 8);
+  const round = store.generateRound();
+  const late = store.addPlayer('Late Larry');
+  const noShow = round.tables[1].seats[2].playerId;
+  const after = store.swapSeats(round.id, noShow, late.id);
+  assert.equal(placeOf(after, late.id), '2/2');
+  assert.equal(placeOf(after, noShow), null, 'the no-show leaves the round, with no bye');
+  assert.equal(after.byes.length, 0);
+});
+
+test('an unused sit-in can cover a no-show', () => {
+  // With 32 ranked the sit-in is not drawn, so it is not in the round at all.
+  const store = withSitIns(32, 1);
+  const round = store.generateRound();
+  const sub = [...sitInIds(store)][0];
+  assert.equal(placeOf(round, sub), null);
+  const noShow = round.tables[0].seats[0].playerId;
+  const after = store.swapSeats(round.id, sub, noShow);
+  assert.equal(placeOf(after, sub), '1/0');
+  assert.equal(placeOf(after, noShow), null);
+});
+
+test('someone sitting out can take a seat, and the other sits out instead', () => {
+  const store = newStore();
+  addPlayers(store, 9);
+  const round = store.generateRound();
+  const resting = round.byes[0].playerId;
+  const seated = round.tables[0].seats[1].playerId;
+  const after = store.swapSeats(round.id, seated, resting);
+  assert.equal(placeOf(after, resting), '1/1');
+  assert.equal(placeOf(after, seated), 'bye');
+  assert.equal(after.byes[0].score, round.byes[0].score, 'the bye score goes with the bye');
+});
+
+test('a player whose table has a score cannot be moved', () => {
+  const store = newStore();
+  addPlayers(store, 8);
+  const round = store.generateRound();
+  const t1 = round.tables[0];
+  store.saveTable(round.id, t1.tableNumber, t1.seats.map((s, i) =>
+    ({ playerId: s.playerId, rawScore: [45000, 32000, 25000, 18000][i] })));
+  const late = store.addPlayer('Late Larry');
+  assert.throws(() => store.swapSeats(round.id, t1.seats[0].playerId, late.id), /already has a score/);
+});
+
+test('a withdrawn player cannot be brought in', () => {
+  const store = newStore();
+  addPlayers(store, 8);
+  const gone = store.addPlayer('Gone Gary');
+  store.updatePlayer(gone.id, { status: 'withdrawn' });
+  const round = store.generateRound();
+  assert.throws(() => store.swapSeats(round.id, round.tables[0].seats[0].playerId, gone.id),
+    /withdrawn/);
+});
+
+test('a seat change needs someone seated, and two different people', () => {
+  const store = newStore();
+  addPlayers(store, 8);
+  const round = store.generateRound();
+  const a = store.addPlayer('Outside A');
+  const b = store.addPlayer('Outside B');
+  assert.throws(() => store.swapSeats(round.id, a.id, b.id), /has to be seated/);
+  const seated = round.tables[0].seats[0].playerId;
+  assert.throws(() => store.swapSeats(round.id, seated, seated), /two different/);
+});
+
 test('reseating produces a different draw', () => {
   const store = newStore();
   addPlayers(store, 12);

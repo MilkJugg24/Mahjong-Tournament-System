@@ -873,6 +873,8 @@ function renderRound() {
 
   ${byes}
 
+  ${moveCard(rnd)}
+
   <div class="card">
     <div class="row">
       <button class="primary big" id="closeBtn">
@@ -908,6 +910,17 @@ function renderRound() {
     }));
   }
 
+  const mv = $('#mvBtn');
+  if (mv) {
+    // Start the two lists on different players.
+    if ($('#mvB').options.length > 1) $('#mvB').selectedIndex = 1;
+    mv.addEventListener('click', () => guard(() => {
+      state.round = state.store.swapSeats(rnd.id, num($('#mvA').value), num($('#mvB').value));
+      render();
+      toast('Seats changed. Reprint the seating and report sheets if they are already out.');
+    }));
+  }
+
   const reseat = $('#reseatBtn');
   if (reseat) {
     reseat.addEventListener('click', () => confirmThen(
@@ -932,6 +945,53 @@ function renderRound() {
   });
 
   attachRoundHistory();
+}
+
+/**
+ * Changing seats after the draw: a swap, a seat for someone sitting out, or a
+ * player from outside the round -- a late arrival, or a sit-in for a no-show.
+ */
+function moveCard(rnd) {
+  const label = (t, s) => `Table ${t.tableNumber}${t.freePlay ? ' (free play)' : ''} `
+    + `${WINDS[s.seatIndex] || '?'} · ${s.name}`;
+  const inRound = [];
+  const present = new Set();
+  for (const t of rnd.tables) {
+    for (const s of t.seats) {
+      if (s.playerId === null || s.playerId === undefined) continue;
+      present.add(s.playerId);
+      // A player whose table has a score stays put.
+      if (!t.seats.some((x) => x.rawScore !== null && x.rawScore !== undefined)) {
+        inRound.push([s.playerId, label(t, s)]);
+      }
+    }
+  }
+  for (const b of rnd.byes) {
+    present.add(b.playerId);
+    inRound.push([b.playerId, `Sitting out · ${b.name}`]);
+  }
+  for (const id of rnd.freePlayOut || []) present.add(id);
+  const outside = state.store.playingPlayers()
+    .filter((p) => !present.has(p.id))
+    .map((p) => [p.id, `${p.name}${p.role === 'sit_in' ? ' (sit-in)' : ''}`]);
+  if (inRound.length < 2 && !outside.length) return '';
+  const opts = (list) => list
+    .map(([id, text]) => `<option value="${id}">${esc(text)}</option>`).join('');
+  return `<div class="card">
+    <h2>Change seats <button type="button" class="qmark" data-help="change-seats"
+      aria-label="What is this?">?</button></h2>
+    <p class="small muted">Swap two players, give a seat to someone sitting out, or bring in
+      someone who is not in this round &mdash; a late arrival, or a sit-in for a no-show.
+      Nobody else at the table moves.</p>
+    <div class="grid two">
+      <label class="field"><span>Move</span><select id="mvA">${opts(inRound)}</select></label>
+      <label class="field"><span>With</span><select id="mvB">
+        <optgroup label="In this round">${opts(inRound)}</optgroup>
+        ${outside.length ? `<optgroup label="Not in this round">${opts(outside)}</optgroup>` : ''}
+      </select></label>
+    </div>
+    <div class="btnrow"><button id="mvBtn">Change seats</button></div>
+  </div>`;
 }
 
 function tableCard(table) {
@@ -2220,6 +2280,8 @@ function discordOnChange(kind) {
     table_saved: 'standings',
     cut_applied: 'both',
     round_reseated: 'pairings',
+    seats_swapped: 'pairings',
+    seat_substituted: 'pairings',
   }[kind];
   if (!wants) return;
   if (discordState.timer) clearTimeout(discordState.timer);

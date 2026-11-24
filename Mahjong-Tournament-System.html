@@ -18,14 +18,14 @@
     RT:FILE scoring.js   line   1040  Scoring engine -- World Riichi Championship 2025.  <-- the arithmetic
     RT:FILE seating.js   line   1807  Seating and pairing engine.
     RT:FILE store.js     line   2447  Tournament operations -- the layer the interface sits on.
-    RT:FILE backup.js    line   3699  Backups: the CSV files, the folder on disk, and restore points.
-    RT:FILE persist.js   line   4434  The working copy: IndexedDB.
-    RT:FILE printing.js  line   4671  Printable pages.
-    RT:FILE discord.js   line   4986  Posting pairings and standings to a Discord channel.
-    RT:FILE help.js      line   5240  Help content: the help page, and the text behind every "?" bubble.
-    RT:FILE testdata.js  line   5527  Made-up rosters and made-up scores, for trying the program out.
-    RT:FILE tutorial.js  line   5653  The guided tutorial: a demo tournament that plays itself while ...
-    RT:FILE ui.js        line   6119  The browser interface.
+    RT:FILE backup.js    line   3745  Backups: the CSV files, the folder on disk, and restore points.
+    RT:FILE persist.js   line   4480  The working copy: IndexedDB.
+    RT:FILE printing.js  line   4717  Printable pages.
+    RT:FILE discord.js   line   5032  Posting pairings and standings to a Discord channel.
+    RT:FILE help.js      line   5286  Help content: the help page, and the text behind every "?" bubble.
+    RT:FILE testdata.js  line   5579  Made-up rosters and made-up scores, for trying the program out.
+    RT:FILE tutorial.js  line   5705  The guided tutorial: a demo tournament that plays itself while ...
+    RT:FILE ui.js        line   6171  The browser interface.
 
     To check how a score was worked out, read scoring.js: the formula is
     written out at the top of it, and rational.js is the exact arithmetic
@@ -3087,52 +3087,98 @@ class TournamentStore {
     return fresh;
   }
 
-  /** Swap two seated players, or move one into a bye slot. */
+  /**
+   * Change who sits where after the draw.
+   *
+   *   both seated          they swap seats
+   *   one seated, one bye  the bye player takes the seat and the other sits out,
+   *                        on the bye score already worked out for the round
+   *   one not in the round they take the seat and the other leaves the round
+   *                        with no score -- a late arrival, or a sit-in for a
+   *                        no-show. Nobody else at the table moves.
+   *
+   * A player whose table already has a score cannot be moved, and in a final
+   * round a finalist cannot be put on a free-play table.
+   */
   swapSeats(roundId, playerA, playerB) {
+    const t = this.require();
     const round = this.findRound(roundId);
     if (round.status === 'complete') {
       throw new StoreError('This round is closed. Reopen it before changing seats.');
     }
     const a = Number(playerA);
     const b = Number(playerB);
+    if (a === b) throw new StoreError('Choose two different players.');
 
     for (const pid of [a, b]) {
       if (round.tables.some((tb) => (tb.results || {})[pid] !== undefined)) {
         throw new StoreError(
-          'One of those players already has a score for this round. '
+          `${this.findPlayer(pid).name} already has a score for this round. `
           + 'Clear the table result before moving them.');
       }
     }
 
-    const seatOf = (pid) => {
-      for (const tb of round.tables) {
-        const seat = tb.seats.find((s) => s.playerId === pid);
-        if (seat) return seat;
+    const placeOf = (pid) => {
+      for (const table of round.tables) {
+        const seat = table.seats.find((s) => s.playerId === pid);
+        if (seat) return { table, seat };
       }
       return null;
     };
-    const seatA = seatOf(a);
-    const seatB = seatOf(b);
-    const byeA = round.byes.find((x) => x.playerId === a);
-    const byeB = round.byes.find((x) => x.playerId === b);
+    const at = { [a]: placeOf(a), [b]: placeOf(b) };
+    const bye = {
+      [a]: round.byes.find((x) => x.playerId === a),
+      [b]: round.byes.find((x) => x.playerId === b),
+    };
 
-    if (seatA && seatB) {
-      seatA.playerId = b;
-      seatB.playerId = a;
-    } else if (seatA && byeB) {
-      seatA.playerId = b;
-      round.byes = round.byes.filter((x) => x.playerId !== b);
-      round.byes.push({ playerId: a, score: byeB.score });
-    } else if (seatB && byeA) {
-      seatB.playerId = a;
-      round.byes = round.byes.filter((x) => x.playerId !== a);
-      round.byes.push({ playerId: b, score: byeA.score });
-    } else {
-      throw new StoreError(
-        'Both players must be in this round (seated or on a bye) to swap.');
+    // Where each would end up, checked before anything changes.
+    const finalists = new Set(((t.config.cut || {}).qualified || []).map(Number));
+    const refuseFreeSeat = (pid, place) => {
+      if (place && place.table.freePlay && finalists.has(pid)) {
+        throw new StoreError(
+          `${this.findPlayer(pid).name} is in the final and cannot be moved to a `
+          + 'free-play table.');
+      }
+    };
+
+    if (at[a] && at[b]) {
+      refuseFreeSeat(a, at[b]);
+      refuseFreeSeat(b, at[a]);
+      at[a].seat.playerId = b;
+      at[b].seat.playerId = a;
+      this.changed('seats_swapped', { roundId: round.id, a, b });
+      return this.getRound(round.id);
     }
 
-    this.changed('seats_swapped', { roundId: round.id, a, b });
+    const seated = at[a] ? a : (at[b] ? b : null);
+    if (seated === null) {
+      throw new StoreError('At least one of the two has to be seated in this round.');
+    }
+    const other = seated === a ? b : a;
+    const place = at[seated];
+
+    if (bye[other]) {
+      refuseFreeSeat(other, place);
+      place.seat.playerId = other;
+      round.byes = round.byes.filter((x) => x.playerId !== other);
+      round.byes.push({ playerId: seated, score: bye[other].score });
+      this.changed('seats_swapped', { roundId: round.id, a, b });
+      return this.getRound(round.id);
+    }
+
+    // Someone from outside the round takes the seat.
+    const arriving = this.findPlayer(other);
+    if (arriving.status !== 'active') {
+      throw new StoreError(
+        `${arriving.name} is marked ${arriving.status}. Set them back to playing on the `
+        + 'Players tab before seating them.');
+    }
+    refuseFreeSeat(other, place);
+    place.seat.playerId = other;
+    place.table.updatedAt = now();
+    this.changed('seat_substituted', {
+      roundId: round.id, table: place.table.tableNumber, out: seated, in: other,
+    });
     return this.getRound(round.id);
   }
 
@@ -5273,6 +5319,12 @@ const FIELD_HELP = {
     + 'steps in to make up a four. Sit-ins are only seated when they complete a '
     + 'table; when the ranked players fill the tables on their own, they sit out.',
 
+  'change-seats': 'Pick a seated player, then who takes their place. Two seated players '
+    + 'swap. Someone sitting out takes the seat, and the other sits out on the same bye '
+    + 'score. Someone not in this round -- a late arrival, or a sit-in for a no-show -- '
+    + 'takes the seat, and the player they replace leaves the round with no score; add '
+    + 'a penalty on the Cut & finals tab if your rules give one for a missed hanchan.',
+
   'player-status': 'Withdrawn players keep the results they have already earned but '
     + 'are left out of every future draw. Use this rather than deleting someone who '
     + 'has played, or their earlier opponents lose the record of those games.',
@@ -6993,6 +7045,8 @@ function renderRound() {
 
   ${byes}
 
+  ${moveCard(rnd)}
+
   <div class="card">
     <div class="row">
       <button class="primary big" id="closeBtn">
@@ -7028,6 +7082,17 @@ function renderRound() {
     }));
   }
 
+  const mv = $('#mvBtn');
+  if (mv) {
+    // Start the two lists on different players.
+    if ($('#mvB').options.length > 1) $('#mvB').selectedIndex = 1;
+    mv.addEventListener('click', () => guard(() => {
+      state.round = state.store.swapSeats(rnd.id, num($('#mvA').value), num($('#mvB').value));
+      render();
+      toast('Seats changed. Reprint the seating and report sheets if they are already out.');
+    }));
+  }
+
   const reseat = $('#reseatBtn');
   if (reseat) {
     reseat.addEventListener('click', () => confirmThen(
@@ -7052,6 +7117,53 @@ function renderRound() {
   });
 
   attachRoundHistory();
+}
+
+/**
+ * Changing seats after the draw: a swap, a seat for someone sitting out, or a
+ * player from outside the round -- a late arrival, or a sit-in for a no-show.
+ */
+function moveCard(rnd) {
+  const label = (t, s) => `Table ${t.tableNumber}${t.freePlay ? ' (free play)' : ''} `
+    + `${WINDS[s.seatIndex] || '?'} · ${s.name}`;
+  const inRound = [];
+  const present = new Set();
+  for (const t of rnd.tables) {
+    for (const s of t.seats) {
+      if (s.playerId === null || s.playerId === undefined) continue;
+      present.add(s.playerId);
+      // A player whose table has a score stays put.
+      if (!t.seats.some((x) => x.rawScore !== null && x.rawScore !== undefined)) {
+        inRound.push([s.playerId, label(t, s)]);
+      }
+    }
+  }
+  for (const b of rnd.byes) {
+    present.add(b.playerId);
+    inRound.push([b.playerId, `Sitting out · ${b.name}`]);
+  }
+  for (const id of rnd.freePlayOut || []) present.add(id);
+  const outside = state.store.playingPlayers()
+    .filter((p) => !present.has(p.id))
+    .map((p) => [p.id, `${p.name}${p.role === 'sit_in' ? ' (sit-in)' : ''}`]);
+  if (inRound.length < 2 && !outside.length) return '';
+  const opts = (list) => list
+    .map(([id, text]) => `<option value="${id}">${esc(text)}</option>`).join('');
+  return `<div class="card">
+    <h2>Change seats <button type="button" class="qmark" data-help="change-seats"
+      aria-label="What is this?">?</button></h2>
+    <p class="small muted">Swap two players, give a seat to someone sitting out, or bring in
+      someone who is not in this round &mdash; a late arrival, or a sit-in for a no-show.
+      Nobody else at the table moves.</p>
+    <div class="grid two">
+      <label class="field"><span>Move</span><select id="mvA">${opts(inRound)}</select></label>
+      <label class="field"><span>With</span><select id="mvB">
+        <optgroup label="In this round">${opts(inRound)}</optgroup>
+        ${outside.length ? `<optgroup label="Not in this round">${opts(outside)}</optgroup>` : ''}
+      </select></label>
+    </div>
+    <div class="btnrow"><button id="mvBtn">Change seats</button></div>
+  </div>`;
 }
 
 function tableCard(table) {
@@ -8340,6 +8452,8 @@ function discordOnChange(kind) {
     table_saved: 'standings',
     cut_applied: 'both',
     round_reseated: 'pairings',
+    seats_swapped: 'pairings',
+    seat_substituted: 'pairings',
   }[kind];
   if (!wants) return;
   if (discordState.timer) clearTimeout(discordState.timer);

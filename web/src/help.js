@@ -32,6 +32,12 @@ const FIELD_HELP = {
     + 'steps in to make up a four. Sit-ins are only seated when they complete a '
     + 'table; when the ranked players fill the tables on their own, they sit out.',
 
+  'change-seats': 'Pick a seated player, then who takes their place. Two seated players '
+    + 'swap. Someone sitting out takes the seat, and the other sits out on the same bye '
+    + 'score. Someone not in this round -- a late arrival, or a sit-in for a no-show -- '
+    + 'takes the seat, and the player they replace leaves the round with no score; add '
+    + 'a penalty on the Cut & finals tab if your rules give one for a missed hanchan.',
+
   'player-status': 'Withdrawn players keep the results they have already earned but '
     + 'are left out of every future draw. Use this rather than deleting someone who '
     + 'has played, or their earlier opponents lose the record of those games.',

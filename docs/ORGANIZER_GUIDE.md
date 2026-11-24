@@ -118,8 +118,22 @@ For a very large field in a hurry, the **ARA wheel** option is instant, though
 the optimised draw is better and still only takes a second or two.
 
 Byes rotate automatically: nobody sits out twice before everybody has sat out
-once. To make someone sit out a particular round, you can swap them with a
-seated player.
+once.
+
+### Changing seats after the draw
+
+**Change seats**, on the round page, moves people without redrawing:
+
+- Two seated players swap seats.
+- Someone sitting out takes a seat, and the player they replace sits out on the
+  same bye score. This is how you make a particular person sit out a round.
+- Someone not in this round takes a seat: a late arrival, or a sit-in covering a
+  no-show. The player they replace leaves the round with no score. If your rules
+  penalise a missed hanchan, add the penalty on the Cut & finals tab.
+
+Nobody else at the table moves. A player at a table that already has a score
+stays where they are. Reprint the seating and that table's report sheet if they
+are already out.
 
 ### 3. Print and lay out
 

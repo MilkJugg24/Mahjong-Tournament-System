@@ -624,10 +624,15 @@ function renderPlayers() {
   if (!t) return;
   const players = state.store.listPlayers();
   $('#playerLede').innerHTML = fieldSummary(state.store.fieldPlan());
+  const playing = players.filter((p) => p.status === 'active').length;
+  const here = players.filter((p) => p.status === 'active' && p.checkedIn).length;
+  const absent = playing - here;
 
   const sel = (a, b) => (a === b ? ' selected' : '');
   const rows = players.map((p) => `
-    <tr data-pid="${p.id}">
+    <tr data-pid="${p.id}" data-name="${esc(p.name.toLowerCase())}">
+      <td><input type="checkbox" data-here="${p.id}"${p.checkedIn ? ' checked' : ''}
+        aria-label="${esc(p.name)} is here"></td>
       <td><input type="text" value="${esc(p.name)}" data-f="name" style="min-width:9em"></td>
       <td><input type="text" value="${esc(p.club)}" data-f="club" style="min-width:7em"></td>
       <td><input type="text" value="${esc(p.contact)}" data-f="contact" style="min-width:8em"></td>
@@ -673,8 +678,17 @@ function renderPlayers() {
 
   <div class="card">
     <h2>Roster <span class="muted small">(${players.length})</span></h2>
-    ${players.length ? `<div class="scroll"><table class="data">
-      <thead><tr><th>Name</th><th>Club</th><th>Contact</th><th>Role <button type="button" class="qmark" data-help="player-role" aria-label="What is this?">?</button></th><th>Status <button type="button" class="qmark" data-help="player-status" aria-label="What is this?">?</button></th>
+    ${players.length ? `<div class="row signin" style="margin-bottom:10px;gap:10px;flex-wrap:wrap">
+      <label class="field" style="flex:1;min-width:220px;margin:0"><span>Find or sign in
+        <button type="button" class="qmark" data-help="sign-in" aria-label="What is this?">?</button></span>
+        <input type="search" id="rosterFind" placeholder="Type a name, Enter to sign them in"
+          autocomplete="off"></label>
+      <span class="small"><strong>${here} of ${playing}</strong> playing are signed in</span>
+      ${here && absent ? `<button class="ghost" id="withdrawAbsent">Withdraw the ${absent} not signed in</button>` : ''}
+      ${here ? '<button class="ghost" id="clearSignIn">Clear sign-in</button>' : ''}
+    </div>
+    <div class="scroll"><table class="data">
+      <thead><tr><th title="Signed in">Here</th><th>Name</th><th>Club</th><th>Contact</th><th>Role <button type="button" class="qmark" data-help="player-role" aria-label="What is this?">?</button></th><th>Status <button type="button" class="qmark" data-help="player-status" aria-label="What is this?">?</button></th>
       <th class="num" title="Used only to settle a tie a coin toss decided">Tiebreak</th><th></th></tr></thead>
       <tbody>${rows}</tbody></table></div>
       <p class="small muted" style="margin-top:10px">A <strong>sit-in</strong> fills a table but is
@@ -729,6 +743,74 @@ function renderPlayers() {
       + (skipped ? `; skipped ${skipped} already on the roster.` : '.'));
     return null;
   }));
+
+  // Sign-in: tick a box, or type a name and press Enter.
+  $$('[data-here]', $('#playersBody')).forEach((box) => box.addEventListener('change', () =>
+    guard(() => {
+      state.store.setCheckedIn(num(box.dataset.here), box.checked);
+      render();
+    })));
+
+  const find = $('#rosterFind');
+  if (find) {
+    const visible = () => $$('#playersBody tbody tr').filter((tr) => tr.style.display !== 'none');
+    find.addEventListener('input', () => {
+      const q = find.value.trim().toLowerCase();
+      $$('#playersBody tbody tr').forEach((tr) => {
+        tr.style.display = !q || tr.dataset.name.includes(q) ? '' : 'none';
+      });
+    });
+    find.addEventListener('keydown', (e) => {
+      if (e.key !== 'Enter') return;
+      e.preventDefault();
+      const rows = visible();
+      if (rows.length !== 1) {
+        toast(rows.length ? `${rows.length} names match. Type a little more.`
+          : 'Nobody on the roster matches that.', 'warn');
+        return;
+      }
+      guard(() => {
+        const player = state.store.setCheckedIn(num(rows[0].dataset.pid), true);
+        render();
+        toast(`${player.name} signed in.`);
+        // Ready for the next person at the door.
+        if ($('#rosterFind')) $('#rosterFind').focus();
+      });
+    });
+  }
+
+  const withdrawAbsent = $('#withdrawAbsent');
+  if (withdrawAbsent) {
+    withdrawAbsent.addEventListener('click', () => {
+      const names = state.store.absentPlayers().map((p) => p.name);
+      confirmThen(`Withdraw ${names.length} not signed in: ${names.join(', ')}?`
+        + ' They can be set back to playing on this tab.', () => guard(() => {
+        const gone = state.store.withdrawAbsent();
+        render();
+        toast(`${gone.length} withdrawn.`);
+      }));
+    });
+  }
+
+  const clearSignIn = $('#clearSignIn');
+  if (clearSignIn) {
+    clearSignIn.addEventListener('click', () => confirmThen(
+      'Clear everyone\'s sign-in, to start again for another day?', () => guard(() => {
+        state.store.clearCheckIn();
+        render();
+        toast('Sign-in cleared.');
+      })));
+  }
+
+  // Role and status take effect as soon as they change. They used to wait for
+  // the row's Save button, and a change left unsaved simply did nothing.
+  $$('select[data-f]', $('#playersBody')).forEach((select) => select.addEventListener('change', () =>
+    guard(() => {
+      const pid = num(select.closest('tr').dataset.pid);
+      const player = state.store.updatePlayer(pid, { [select.dataset.f]: select.value });
+      render();
+      toast(`${player.name}: ${select.options[select.selectedIndex].text.toLowerCase()}.`);
+    })));
 
   $$('[data-save]', $('#playersBody')).forEach((b) => b.addEventListener('click', () => {
     const tr = b.closest('tr');

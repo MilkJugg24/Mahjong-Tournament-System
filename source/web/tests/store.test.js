@@ -943,6 +943,46 @@ test('the field plan says what fills the last table', () => {
   assert.equal(withSitIns(64, 3).fieldPlan().sitInsUsed, 0);
 });
 
+/* ---------------------------------------------------------- sign-in */
+
+test('signing in, and withdrawing whoever did not come', () => {
+  const store = newStore();
+  const [a, b, c, d, e] = addPlayers(store, 5);
+  for (const p of [a, b, c]) store.setCheckedIn(p.id);
+  assert.deepEqual(store.absentPlayers().map((p) => p.id).sort(), [d.id, e.id].sort());
+  const gone = store.withdrawAbsent();
+  assert.deepEqual(gone.map((p) => p.id).sort(), [d.id, e.id].sort());
+  assert.equal(store.findPlayer(d.id).status, 'withdrawn');
+  assert.equal(store.findPlayer(a.id).status, 'active');
+  assert.equal(store.events(1)[0].kind, 'absent_withdrawn');
+});
+
+test('withdrawing the absent is refused before anyone has signed in', () => {
+  const store = newStore();
+  addPlayers(store, 4);
+  assert.throws(() => store.withdrawAbsent(), /Nobody has signed in/);
+  assert.ok(store.listPlayers().every((p) => p.status === 'active'));
+});
+
+test('sign-in can be undone, and cleared for a second day', () => {
+  const store = newStore();
+  const [a, b] = addPlayers(store, 2);
+  store.setCheckedIn(a.id);
+  store.setCheckedIn(b.id);
+  store.setCheckedIn(b.id, false);
+  assert.equal(store.findPlayer(b.id).checkedIn, false);
+  store.clearCheckIn();
+  assert.ok(store.listPlayers().every((p) => !p.checkedIn));
+});
+
+test('players already withdrawn are not withdrawn again', () => {
+  const store = newStore();
+  const [a, b, c] = addPlayers(store, 3);
+  store.updatePlayer(c.id, { status: 'withdrawn' });
+  store.setCheckedIn(a.id);
+  assert.deepEqual(store.withdrawAbsent().map((p) => p.id), [b.id]);
+});
+
 /* -------------------------------------------------------- bookkeeping */
 
 test('the event log records every change', () => {

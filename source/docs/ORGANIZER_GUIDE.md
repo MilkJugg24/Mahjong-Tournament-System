@@ -43,7 +43,7 @@ sit-ins than you have, the ones who have played least go in first.
 ### Set the event up in advance
 
 Create the tournament and paste the roster the night before. Then on the day you
-only have to mark no-shows as *Withdrawn* and draw the first round.
+only have to sign people in and draw the first round.
 
 Run it on a laptop you can leave open for the day. One machine runs the whole
 event — there is nothing to connect to and nothing to log in to.
@@ -93,9 +93,19 @@ minutes between rounds. Call the time remaining at 30, 45, 60 and 75 minutes.
 
 ### 1. Sign-in
 
-Print the sign-in sheet from **Backups & print**. Mark anyone who does not turn
-up as **Withdrawn** on the Players tab — do not delete them, because deleting
-loses their history and is blocked once they have played.
+Sign people in on the Players tab as they arrive. Tick **Here** beside their
+name, or type part of it in the find box and press Enter once only one name
+matches; the box is ready for the next person straight away. The count above
+the roster shows how many of the field are in.
+
+When everyone who is coming has arrived, **Withdraw the ones not signed in**
+marks the rest withdrawn in one go, after showing you the names, so they are
+left out of the draw. Withdraw rather than delete: deleting loses a player's
+history and is blocked once they have played. On a second day, **Clear
+sign-in** starts again.
+
+Prefer paper at the door? Print the sign-in sheet from **Backups & print** and
+tick people off on the laptop afterwards.
 
 Check the player count on the Players tab before you draw. It tells you directly
 how the field divides, for example:

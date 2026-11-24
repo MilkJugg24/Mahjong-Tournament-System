@@ -18,14 +18,14 @@
     RT:FILE scoring.js   line   1042  Scoring engine -- World Riichi Championship 2025.  <-- the arithmetic
     RT:FILE seating.js   line   1809  Seating and pairing engine.
     RT:FILE store.js     line   2449  Tournament operations -- the layer the interface sits on.
-    RT:FILE backup.js    line   3870  Backups: the CSV files, the folder on disk, and restore points.
-    RT:FILE persist.js   line   4637  The working copy: IndexedDB.
-    RT:FILE printing.js  line   4874  Printable pages.
-    RT:FILE discord.js   line   5194  Posting pairings and standings to a Discord channel.
-    RT:FILE help.js      line   5449  Help content: the help page, and the text behind every "?" bubble.
-    RT:FILE testdata.js  line   5744  Made-up rosters and made-up scores, for trying the program out.
-    RT:FILE tutorial.js  line   5870  The guided tutorial: a demo tournament that plays itself while ...
-    RT:FILE ui.js        line   6337  The browser interface.
+    RT:FILE backup.js    line   3914  Backups: the CSV files, the folder on disk, and restore points.
+    RT:FILE persist.js   line   4682  The working copy: IndexedDB.
+    RT:FILE printing.js  line   4919  Printable pages.
+    RT:FILE discord.js   line   5239  Posting pairings and standings to a Discord channel.
+    RT:FILE help.js      line   5494  Help content: the help page, and the text behind every "?" bubble.
+    RT:FILE testdata.js  line   5794  Made-up rosters and made-up scores, for trying the program out.
+    RT:FILE tutorial.js  line   5920  The guided tutorial: a demo tournament that plays itself while ...
+    RT:FILE ui.js        line   6387  The browser interface.
 
     To check how a score was worked out, read scoring.js: the formula is
     written out at the top of it, and rational.js is the exact arithmetic
@@ -2709,6 +2709,50 @@ class TournamentStore {
     return player;
   }
 
+  /* ------------------------------------------------------------ sign-in
+   *
+   * The door: tick people off as they arrive, then withdraw whoever did not
+   * come, in one go. Marking no-shows used to mean finding each one in the
+   * roster and changing their status by hand. */
+
+  /** Mark a player as signed in, or not. */
+  setCheckedIn(playerId, on = true) {
+    const player = this.findPlayer(playerId);
+    player.checkedIn = Boolean(on);
+    this.changed('player_checked_in', { playerId: player.id, on: player.checkedIn });
+    return player;
+  }
+
+  /** Start sign-in afresh, for a second day. */
+  clearCheckIn() {
+    const t = this.require();
+    for (const p of t.players) p.checkedIn = false;
+    this.changed('check_in_cleared', {});
+  }
+
+  /** Everyone still playing who has not signed in. */
+  absentPlayers() {
+    return this.listPlayers().filter((p) => p.status === 'active' && !p.checkedIn);
+  }
+
+  /**
+   * Withdraw everyone still playing who has not signed in, and return them.
+   * Refused while nobody has signed in, when it would withdraw the whole field.
+   */
+  withdrawAbsent() {
+    const t = this.require();
+    if (!t.players.some((p) => p.checkedIn)) {
+      throw new StoreError('Nobody has signed in yet, so this would withdraw everyone. '
+        + 'Sign people in first.');
+    }
+    const absent = this.absentPlayers();
+    for (const p of absent) p.status = 'withdrawn';
+    this.changed('absent_withdrawn', {
+      playerIds: absent.map((p) => p.id), names: absent.map((p) => p.name),
+    });
+    return absent;
+  }
+
   deletePlayer(playerId) {
     const t = this.require();
     const player = this.findPlayer(playerId);
@@ -3972,11 +4016,12 @@ function tournamentRows(store) {
 }
 
 function playerRows(store) {
+  // signed_in was added at the end, where a new column breaks nobody's sheet.
   const rows = [['player_id', 'name', 'club', 'contact', 'external_id', 'role',
-    'status', 'manual_tiebreak', 'notes']];
+    'status', 'manual_tiebreak', 'notes', 'signed_in']];
   for (const p of store.listPlayers()) {
     rows.push([p.id, p.name, p.club, p.contact, p.externalId, p.role,
-      p.status, p.manualTiebreak, p.notes]);
+      p.status, p.manualTiebreak, p.notes, p.checkedIn ? 'yes' : '']);
   }
   return rows;
 }
@@ -5488,6 +5533,11 @@ const FIELD_HELP = {
     + 'takes the seat, and the player they replace leaves the round with no score; add '
     + 'a penalty on the Cut & finals tab if your rules give one for a missed hanchan.',
 
+  'sign-in': 'Tick people off as they arrive: the Here box, or type part of a name '
+    + 'and press Enter when only one matches. When everyone who is coming is here, '
+    + '"Withdraw the ones not signed in" marks the rest withdrawn in one go, so they '
+    + 'are left out of the draw. Clear sign-in starts again for another day.',
+
   'player-status': 'Withdrawn players keep the results they have already earned but '
     + 'are left out of every future draw. Use this rather than deleting someone who '
     + 'has played, or their earlier opponents lose the record of those games.',
@@ -6962,10 +7012,15 @@ function renderPlayers() {
   if (!t) return;
   const players = state.store.listPlayers();
   $('#playerLede').innerHTML = fieldSummary(state.store.fieldPlan());
+  const playing = players.filter((p) => p.status === 'active').length;
+  const here = players.filter((p) => p.status === 'active' && p.checkedIn).length;
+  const absent = playing - here;
 
   const sel = (a, b) => (a === b ? ' selected' : '');
   const rows = players.map((p) => `
-    <tr data-pid="${p.id}">
+    <tr data-pid="${p.id}" data-name="${esc(p.name.toLowerCase())}">
+      <td><input type="checkbox" data-here="${p.id}"${p.checkedIn ? ' checked' : ''}
+        aria-label="${esc(p.name)} is here"></td>
       <td><input type="text" value="${esc(p.name)}" data-f="name" style="min-width:9em"></td>
       <td><input type="text" value="${esc(p.club)}" data-f="club" style="min-width:7em"></td>
       <td><input type="text" value="${esc(p.contact)}" data-f="contact" style="min-width:8em"></td>
@@ -7011,8 +7066,17 @@ function renderPlayers() {
 
   <div class="card">
     <h2>Roster <span class="muted small">(${players.length})</span></h2>
-    ${players.length ? `<div class="scroll"><table class="data">
-      <thead><tr><th>Name</th><th>Club</th><th>Contact</th><th>Role <button type="button" class="qmark" data-help="player-role" aria-label="What is this?">?</button></th><th>Status <button type="button" class="qmark" data-help="player-status" aria-label="What is this?">?</button></th>
+    ${players.length ? `<div class="row signin" style="margin-bottom:10px;gap:10px;flex-wrap:wrap">
+      <label class="field" style="flex:1;min-width:220px;margin:0"><span>Find or sign in
+        <button type="button" class="qmark" data-help="sign-in" aria-label="What is this?">?</button></span>
+        <input type="search" id="rosterFind" placeholder="Type a name, Enter to sign them in"
+          autocomplete="off"></label>
+      <span class="small"><strong>${here} of ${playing}</strong> playing are signed in</span>
+      ${here && absent ? `<button class="ghost" id="withdrawAbsent">Withdraw the ${absent} not signed in</button>` : ''}
+      ${here ? '<button class="ghost" id="clearSignIn">Clear sign-in</button>' : ''}
+    </div>
+    <div class="scroll"><table class="data">
+      <thead><tr><th title="Signed in">Here</th><th>Name</th><th>Club</th><th>Contact</th><th>Role <button type="button" class="qmark" data-help="player-role" aria-label="What is this?">?</button></th><th>Status <button type="button" class="qmark" data-help="player-status" aria-label="What is this?">?</button></th>
       <th class="num" title="Used only to settle a tie a coin toss decided">Tiebreak</th><th></th></tr></thead>
       <tbody>${rows}</tbody></table></div>
       <p class="small muted" style="margin-top:10px">A <strong>sit-in</strong> fills a table but is
@@ -7067,6 +7131,74 @@ function renderPlayers() {
       + (skipped ? `; skipped ${skipped} already on the roster.` : '.'));
     return null;
   }));
+
+  // Sign-in: tick a box, or type a name and press Enter.
+  $$('[data-here]', $('#playersBody')).forEach((box) => box.addEventListener('change', () =>
+    guard(() => {
+      state.store.setCheckedIn(num(box.dataset.here), box.checked);
+      render();
+    })));
+
+  const find = $('#rosterFind');
+  if (find) {
+    const visible = () => $$('#playersBody tbody tr').filter((tr) => tr.style.display !== 'none');
+    find.addEventListener('input', () => {
+      const q = find.value.trim().toLowerCase();
+      $$('#playersBody tbody tr').forEach((tr) => {
+        tr.style.display = !q || tr.dataset.name.includes(q) ? '' : 'none';
+      });
+    });
+    find.addEventListener('keydown', (e) => {
+      if (e.key !== 'Enter') return;
+      e.preventDefault();
+      const rows = visible();
+      if (rows.length !== 1) {
+        toast(rows.length ? `${rows.length} names match. Type a little more.`
+          : 'Nobody on the roster matches that.', 'warn');
+        return;
+      }
+      guard(() => {
+        const player = state.store.setCheckedIn(num(rows[0].dataset.pid), true);
+        render();
+        toast(`${player.name} signed in.`);
+        // Ready for the next person at the door.
+        if ($('#rosterFind')) $('#rosterFind').focus();
+      });
+    });
+  }
+
+  const withdrawAbsent = $('#withdrawAbsent');
+  if (withdrawAbsent) {
+    withdrawAbsent.addEventListener('click', () => {
+      const names = state.store.absentPlayers().map((p) => p.name);
+      confirmThen(`Withdraw ${names.length} not signed in: ${names.join(', ')}?`
+        + ' They can be set back to playing on this tab.', () => guard(() => {
+        const gone = state.store.withdrawAbsent();
+        render();
+        toast(`${gone.length} withdrawn.`);
+      }));
+    });
+  }
+
+  const clearSignIn = $('#clearSignIn');
+  if (clearSignIn) {
+    clearSignIn.addEventListener('click', () => confirmThen(
+      'Clear everyone\'s sign-in, to start again for another day?', () => guard(() => {
+        state.store.clearCheckIn();
+        render();
+        toast('Sign-in cleared.');
+      })));
+  }
+
+  // Role and status take effect as soon as they change. They used to wait for
+  // the row's Save button, and a change left unsaved simply did nothing.
+  $$('select[data-f]', $('#playersBody')).forEach((select) => select.addEventListener('change', () =>
+    guard(() => {
+      const pid = num(select.closest('tr').dataset.pid);
+      const player = state.store.updatePlayer(pid, { [select.dataset.f]: select.value });
+      render();
+      toast(`${player.name}: ${select.options[select.selectedIndex].text.toLowerCase()}.`);
+    })));
 
   $$('[data-save]', $('#playersBody')).forEach((b) => b.addEventListener('click', () => {
     const tr = b.closest('tr');

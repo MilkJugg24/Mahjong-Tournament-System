@@ -204,7 +204,7 @@ const EXPECTED_HEADERS = {
       'phase'],
   'players.csv':
     ['player_id', 'name', 'club', 'contact', 'external_id', 'role', 'status',
-      'manual_tiebreak', 'notes'],
+      'manual_tiebreak', 'notes', 'signed_in'],
   'results.csv':
     ['round', 'phase', 'table', 'seat_wind', 'player_id', 'player_name', 'raw_score',
       'placement', 'score_delta', 'uma', 'oka', 'hanchan_score', 'chombo',

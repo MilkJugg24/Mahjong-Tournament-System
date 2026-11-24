@@ -101,11 +101,12 @@ function tournamentRows(store) {
 }
 
 function playerRows(store) {
+  // signed_in was added at the end, where a new column breaks nobody's sheet.
   const rows = [['player_id', 'name', 'club', 'contact', 'external_id', 'role',
-    'status', 'manual_tiebreak', 'notes']];
+    'status', 'manual_tiebreak', 'notes', 'signed_in']];
   for (const p of store.listPlayers()) {
     rows.push([p.id, p.name, p.club, p.contact, p.externalId, p.role,
-      p.status, p.manualTiebreak, p.notes]);
+      p.status, p.manualTiebreak, p.notes, p.checkedIn ? 'yes' : '']);
   }
   return rows;
 }

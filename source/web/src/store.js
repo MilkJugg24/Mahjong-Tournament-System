@@ -259,6 +259,50 @@ class TournamentStore {
     return player;
   }
 
+  /* ------------------------------------------------------------ sign-in
+   *
+   * The door: tick people off as they arrive, then withdraw whoever did not
+   * come, in one go. Marking no-shows used to mean finding each one in the
+   * roster and changing their status by hand. */
+
+  /** Mark a player as signed in, or not. */
+  setCheckedIn(playerId, on = true) {
+    const player = this.findPlayer(playerId);
+    player.checkedIn = Boolean(on);
+    this.changed('player_checked_in', { playerId: player.id, on: player.checkedIn });
+    return player;
+  }
+
+  /** Start sign-in afresh, for a second day. */
+  clearCheckIn() {
+    const t = this.require();
+    for (const p of t.players) p.checkedIn = false;
+    this.changed('check_in_cleared', {});
+  }
+
+  /** Everyone still playing who has not signed in. */
+  absentPlayers() {
+    return this.listPlayers().filter((p) => p.status === 'active' && !p.checkedIn);
+  }
+
+  /**
+   * Withdraw everyone still playing who has not signed in, and return them.
+   * Refused while nobody has signed in, when it would withdraw the whole field.
+   */
+  withdrawAbsent() {
+    const t = this.require();
+    if (!t.players.some((p) => p.checkedIn)) {
+      throw new StoreError('Nobody has signed in yet, so this would withdraw everyone. '
+        + 'Sign people in first.');
+    }
+    const absent = this.absentPlayers();
+    for (const p of absent) p.status = 'withdrawn';
+    this.changed('absent_withdrawn', {
+      playerIds: absent.map((p) => p.id), names: absent.map((p) => p.name),
+    });
+    return absent;
+  }
+
   deletePlayer(playerId) {
     const t = this.require();
     const player = this.findPlayer(playerId);

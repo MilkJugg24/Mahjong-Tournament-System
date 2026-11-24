@@ -38,6 +38,11 @@ const FIELD_HELP = {
     + 'takes the seat, and the player they replace leaves the round with no score; add '
     + 'a penalty on the Cut & finals tab if your rules give one for a missed hanchan.',
 
+  'sign-in': 'Tick people off as they arrive: the Here box, or type part of a name '
+    + 'and press Enter when only one matches. When everyone who is coming is here, '
+    + '"Withdraw the ones not signed in" marks the rest withdrawn in one go, so they '
+    + 'are left out of the draw. Clear sign-in starts again for another day.',
+
   'player-status': 'Withdrawn players keep the results they have already earned but '
     + 'are left out of every future draw. Use this rather than deleting someone who '
     + 'has played, or their earlier opponents lose the record of those games.',

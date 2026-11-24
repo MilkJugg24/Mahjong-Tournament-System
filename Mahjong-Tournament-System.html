@@ -19,13 +19,13 @@
     RT:FILE seating.js   line   1809  Seating and pairing engine.
     RT:FILE store.js     line   2449  Tournament operations -- the layer the interface sits on.
     RT:FILE backup.js    line   3870  Backups: the CSV files, the folder on disk, and restore points.
-    RT:FILE persist.js   line   4611  The working copy: IndexedDB.
-    RT:FILE printing.js  line   4848  Printable pages.
-    RT:FILE discord.js   line   5168  Posting pairings and standings to a Discord channel.
-    RT:FILE help.js      line   5423  Help content: the help page, and the text behind every "?" bubble.
-    RT:FILE testdata.js  line   5718  Made-up rosters and made-up scores, for trying the program out.
-    RT:FILE tutorial.js  line   5844  The guided tutorial: a demo tournament that plays itself while ...
-    RT:FILE ui.js        line   6311  The browser interface.
+    RT:FILE persist.js   line   4637  The working copy: IndexedDB.
+    RT:FILE printing.js  line   4874  Printable pages.
+    RT:FILE discord.js   line   5194  Posting pairings and standings to a Discord channel.
+    RT:FILE help.js      line   5449  Help content: the help page, and the text behind every "?" bubble.
+    RT:FILE testdata.js  line   5744  Made-up rosters and made-up scores, for trying the program out.
+    RT:FILE tutorial.js  line   5870  The guided tutorial: a demo tournament that plays itself while ...
+    RT:FILE ui.js        line   6337  The browser interface.
 
     To check how a score was worked out, read scoring.js: the formula is
     written out at the top of it, and rational.js is the exact arithmetic
@@ -4548,6 +4548,32 @@ function parsePlayerCsv(text) {
 }
 
 /**
+ * What to ask before a backup replaces the same event already in this
+ * browser, or null when there is nothing there to lose.
+ *
+ * Loading a restore point used to overwrite the working copy without a word,
+ * even when the copy in the browser was the newer one -- the wrong snapshot
+ * picked at lunchtime would quietly undo the morning.
+ */
+function restoreConflict(existing, incoming) {
+  if (!existing || !incoming) return null;
+  const when = (iso) => String(iso || 'unknown').replace('T', ' ').replace(/(\.\d+)?Z$/, ' UTC');
+  const here = String(existing.updatedAt || '');
+  const there = String(incoming.updatedAt || '');
+  const newer = here > there;
+  const name = existing.name || incoming.name || 'This event';
+  return {
+    newer,
+    message: newer
+      ? `"${name}" is already in this browser, and that copy is NEWER than the backup `
+        + `(browser: ${when(here)}; backup: ${when(there)}). Loading the backup replaces it, `
+        + 'and anything done since the backup is lost. Replace it anyway?'
+      : `"${name}" is already in this browser (last changed ${when(here)}). Replace it `
+        + `with this backup (saved ${when(there)})?`,
+  };
+}
+
+/**
  * What to tell the organiser about backups on every page, or null.
  *
  * Backups failing used to show only on the Backups tab, which nobody looks at
@@ -4592,7 +4618,7 @@ function backupNotice(status, { demo = false } = {}) {
 }
 
 const API = {
-  LIVE_FILES, SNAPSHOT_EVENTS, backupNotice,
+  LIVE_FILES, SNAPSHOT_EVENTS, backupNotice, restoreConflict,
   csvField, csvText, slug, stamp,
   buildAll, restorePoint, readRestorePoint,
   FolderTarget, downloadFile, BackupManager, parsePlayerCsv,
@@ -6326,7 +6352,7 @@ const { ScoreRules, SEAT_WINDS, SEAT_WIND_NAMES, RULESET_PRESETS } = window.RT.s
 const { TournamentStore, StoreError } = window.RT.store;
 const {
   BackupManager, FolderTarget, buildAll, csvText, restorePoint, readRestorePoint,
-  parsePlayerCsv, downloadFile, slug, stamp, backupNotice,
+  parsePlayerCsv, downloadFile, slug, stamp, backupNotice, restoreConflict,
 } = window.RT.backup;
 const { Persistence } = window.RT.persist;
 const { printPage, openPrintWindow } = window.RT.printing;
@@ -6601,6 +6627,12 @@ function renderHome() {
     await guard(async () => {
       const doc = readRestorePoint(await file.text());
       doc.id = doc.id || `t${Date.now()}`;
+      const conflict = restoreConflict(await persistence.loadTournament(doc.id), doc);
+      if (conflict && !window.confirm(conflict.message)) {
+        e.target.value = '';
+        toast('Nothing was loaded. The copy in this browser is unchanged.');
+        return;
+      }
       state.store.load(doc);
       await persistence.saveTournament(doc);
       await loadTournaments();

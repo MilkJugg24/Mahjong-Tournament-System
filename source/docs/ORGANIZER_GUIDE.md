@@ -325,6 +325,11 @@ or Google Drive, it is already on the new machine.
 This is also how you move an event between computers on purpose — at lunch, or
 when handing over to another organiser.
 
+If the event is already in this browser, the app asks before replacing it, with
+the time each copy was last changed. When the copy in the browser is the newer
+one it says so in capitals, because loading the older backup would lose
+whatever was done since.
+
 **Keep in mind:** the browser holds the live copy, so whichever machine you carry
 on from becomes the one that matters. Do not run the same event on two computers
 at once and expect them to merge; they will not.

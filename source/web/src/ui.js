@@ -14,7 +14,7 @@ const { ScoreRules, SEAT_WINDS, SEAT_WIND_NAMES, RULESET_PRESETS } = window.RT.s
 const { TournamentStore, StoreError } = window.RT.store;
 const {
   BackupManager, FolderTarget, buildAll, csvText, restorePoint, readRestorePoint,
-  parsePlayerCsv, downloadFile, slug, stamp, backupNotice,
+  parsePlayerCsv, downloadFile, slug, stamp, backupNotice, restoreConflict,
 } = window.RT.backup;
 const { Persistence } = window.RT.persist;
 const { printPage, openPrintWindow } = window.RT.printing;
@@ -289,6 +289,12 @@ function renderHome() {
     await guard(async () => {
       const doc = readRestorePoint(await file.text());
       doc.id = doc.id || `t${Date.now()}`;
+      const conflict = restoreConflict(await persistence.loadTournament(doc.id), doc);
+      if (conflict && !window.confirm(conflict.message)) {
+        e.target.value = '';
+        toast('Nothing was loaded. The copy in this browser is unchanged.');
+        return;
+      }
       state.store.load(doc);
       await persistence.saveTournament(doc);
       await loadTournaments();

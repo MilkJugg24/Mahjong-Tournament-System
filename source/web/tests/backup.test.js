@@ -317,6 +317,33 @@ test('a correction goes into the results log that is never rewritten', async () 
     'the correction never reached log/results_log.csv');
 });
 
+/* ----------------------------------- a backup over the browser's copy */
+
+test('loading a backup asks first when the event is already here', () => {
+  const { restoreConflict } = require('../src/backup.js');
+  const here = { name: 'Spring Open', updatedAt: '2026-11-20T12:00:00Z' };
+  const backup = { name: 'Spring Open', updatedAt: '2026-11-20T15:00:00Z' };
+  const c = restoreConflict(here, backup);
+  assert.equal(c.newer, false);
+  assert.match(c.message, /already in this browser/);
+});
+
+test('it says so plainly when the browser\'s copy is the newer one', () => {
+  // The wrong snapshot picked at lunchtime used to undo the morning silently.
+  const { restoreConflict } = require('../src/backup.js');
+  const here = { name: 'Spring Open', updatedAt: '2026-11-20T15:00:00Z' };
+  const backup = { name: 'Spring Open', updatedAt: '2026-11-20T12:00:00Z' };
+  const c = restoreConflict(here, backup);
+  assert.equal(c.newer, true);
+  assert.match(c.message, /NEWER/);
+  assert.match(c.message, /2026-11-20 15:00:00 UTC/);
+});
+
+test('a backup of an event not in this browser loads without asking', () => {
+  const { restoreConflict } = require('../src/backup.js');
+  assert.equal(restoreConflict(null, { name: 'x', updatedAt: '2026-01-01T00:00:00Z' }), null);
+});
+
 /* ------------------------------------------- backups after a restart */
 
 /* A folder handle as the browser hands one back after a restart: the grant

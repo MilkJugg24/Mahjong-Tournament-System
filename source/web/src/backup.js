@@ -677,6 +677,32 @@ function parsePlayerCsv(text) {
 }
 
 /**
+ * What to ask before a backup replaces the same event already in this
+ * browser, or null when there is nothing there to lose.
+ *
+ * Loading a restore point used to overwrite the working copy without a word,
+ * even when the copy in the browser was the newer one -- the wrong snapshot
+ * picked at lunchtime would quietly undo the morning.
+ */
+function restoreConflict(existing, incoming) {
+  if (!existing || !incoming) return null;
+  const when = (iso) => String(iso || 'unknown').replace('T', ' ').replace(/(\.\d+)?Z$/, ' UTC');
+  const here = String(existing.updatedAt || '');
+  const there = String(incoming.updatedAt || '');
+  const newer = here > there;
+  const name = existing.name || incoming.name || 'This event';
+  return {
+    newer,
+    message: newer
+      ? `"${name}" is already in this browser, and that copy is NEWER than the backup `
+        + `(browser: ${when(here)}; backup: ${when(there)}). Loading the backup replaces it, `
+        + 'and anything done since the backup is lost. Replace it anyway?'
+      : `"${name}" is already in this browser (last changed ${when(here)}). Replace it `
+        + `with this backup (saved ${when(there)})?`,
+  };
+}
+
+/**
  * What to tell the organiser about backups on every page, or null.
  *
  * Backups failing used to show only on the Backups tab, which nobody looks at
@@ -721,7 +747,7 @@ function backupNotice(status, { demo = false } = {}) {
 }
 
 const API = {
-  LIVE_FILES, SNAPSHOT_EVENTS, backupNotice,
+  LIVE_FILES, SNAPSHOT_EVENTS, backupNotice, restoreConflict,
   csvField, csvText, slug, stamp,
   buildAll, restorePoint, readRestorePoint,
   FolderTarget, downloadFile, BackupManager, parsePlayerCsv,

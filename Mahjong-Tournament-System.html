@@ -18,14 +18,14 @@
     RT:FILE scoring.js   line   1027  Scoring engine -- World Riichi Championship 2025.  <-- the arithmetic
     RT:FILE seating.js   line   1794  Seating and pairing engine.
     RT:FILE store.js     line   2434  Tournament operations -- the layer the interface sits on.
-    RT:FILE backup.js    line   3673  Backups: the CSV files, the folder on disk, and restore points.
-    RT:FILE persist.js   line   4324  The working copy: IndexedDB.
-    RT:FILE printing.js  line   4561  Printable pages.
-    RT:FILE discord.js   line   4876  Posting pairings and standings to a Discord channel.
-    RT:FILE help.js      line   5130  Help content: the help page, and the text behind every "?" bubble.
-    RT:FILE testdata.js  line   5413  Made-up rosters and made-up scores, for trying the program out.
-    RT:FILE tutorial.js  line   5539  The guided tutorial: a demo tournament that plays itself while ...
-    RT:FILE ui.js        line   6005  The browser interface.
+    RT:FILE backup.js    line   3686  Backups: the CSV files, the folder on disk, and restore points.
+    RT:FILE persist.js   line   4337  The working copy: IndexedDB.
+    RT:FILE printing.js  line   4574  Printable pages.
+    RT:FILE discord.js   line   4889  Posting pairings and standings to a Discord channel.
+    RT:FILE help.js      line   5143  Help content: the help page, and the text behind every "?" bubble.
+    RT:FILE testdata.js  line   5428  Made-up rosters and made-up scores, for trying the program out.
+    RT:FILE tutorial.js  line   5554  The guided tutorial: a demo tournament that plays itself while ...
+    RT:FILE ui.js        line   6020  The browser interface.
 
     To check how a score was worked out, read scoring.js: the formula is
     written out at the top of it, and rational.js is the exact arithmetic
@@ -3556,10 +3556,17 @@ class TournamentStore {
       throw new StoreError(`Round ${open.number} is still open. Close it before cutting.`);
     }
 
-    const table = this.standings('qualifying');
+    // Only players still in the event go through. A withdrawn player keeps
+    // their qualifying place, but putting them through left the final a player
+    // short, with no way out but to disqualify someone who had done nothing
+    // wrong. They are passed over, and the next player goes through instead.
+    const playing = new Set(this.playingPlayers().map((p) => p.id));
+    const everyone = this.standings('qualifying');
+    const table = everyone.filter((s) => playing.has(s.playerId));
     if (table.length < cutSize) {
       throw new StoreError(
-        `Only ${table.length} ranked players; cannot cut to a top ${cutSize}.`);
+        `Only ${table.length} ranked players are still playing; `
+        + `cannot cut to a top ${cutSize}.`);
     }
 
     const qualified = table.slice(0, cutSize).map((s) => s.playerId);
@@ -3574,6 +3581,10 @@ class TournamentStore {
         + 'then cut again.');
     }
 
+    const passedOver = everyone
+      .filter((s) => !playing.has(s.playerId) && s.rank <= boundary.rank)
+      .map((s) => s.playerId);
+
     Object.assign(cut, {
       size: cutSize,
       carry: cutCarry,
@@ -3581,6 +3592,7 @@ class TournamentStore {
       applied: true,
       appliedAt: now(),
       qualified,
+      passedOver,
       carryScores: Object.fromEntries(
         table.slice(0, cutSize).map((s) => [s.playerId, s.tournamentScore.toString()])),
       freePlayForRest: freePlayForRest === null
@@ -3592,6 +3604,7 @@ class TournamentStore {
     this.changed('cut_applied', {
       size: cutSize, carry: cutCarry, rounds: cutRounds, qualified,
       names: table.slice(0, cutSize).map((s) => s.name),
+      passedOver,
     });
     return t;
   }
@@ -3603,7 +3616,7 @@ class TournamentStore {
         'Final rounds have already been seated. Delete them before undoing the cut.');
     }
     t.config = deepMerge(t.config, {
-      cut: { applied: false, qualified: [], carryScores: {} },
+      cut: { applied: false, qualified: [], carryScores: {}, passedOver: [] },
     });
     t.status = 'running';
     this.changed('cut_undone', {});
@@ -5354,6 +5367,8 @@ const TOPICS = [
       <p>When the qualifying rounds are done, the Cut &amp; finals tab takes the top
         players through. You choose how many go through, how many hanchan they play,
         and what they start with: nothing, their full qualifying score, or half of it.</p>
+      <p>Only players still in the event go through. A withdrawn player keeps their
+        qualifying place but is passed over, and the next player takes their seat.</p>
       <p>If two players are level across the cut line, the app <b>stops and asks you</b>
         rather than picking one. Breaking that tie is a tournament decision, and the
         rules put it in your hands.</p>
@@ -7262,6 +7277,8 @@ function renderFinals() {
           ? ` <span class="muted small">carrying ${fmtScore(
             Number(cut.carryScores[id]) * (cut.carry === 'half' ? 0.5 : 1))}P</span>` : '')
         + '</li>').join('')}</ol>
+      ${(cut.passedOver || []).length ? `<p class="small muted">Passed over, having withdrawn:
+        ${esc(cut.passedOver.map((id) => (players.get(id) || {}).name || id).join(', '))}.</p>` : ''}
       <p class="small muted">${cut.carry === 'reset'
         ? 'Points reset to zero for the finals, as in the ARA format.'
         : cut.carry === 'half' ? 'Half of each qualifying score is carried in.'
@@ -7335,7 +7352,9 @@ function renderFinals() {
     });
     loadTournaments().then(render);
     render();
-    toast(`Cut made: top ${size} go through.`);
+    const skipped = (state.store.doc.config.cut.passedOver || []).length;
+    toast(`Cut made: top ${size} go through.`
+      + (skipped ? ` ${skipped} withdrawn player${skipped === 1 ? ' was' : 's were'} passed over.` : ''));
   }));
 
   const undo = $('#undoCut');

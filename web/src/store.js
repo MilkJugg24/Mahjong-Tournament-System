@@ -1121,10 +1121,17 @@ class TournamentStore {
       throw new StoreError(`Round ${open.number} is still open. Close it before cutting.`);
     }
 
-    const table = this.standings('qualifying');
+    // Only players still in the event go through. A withdrawn player keeps
+    // their qualifying place, but putting them through left the final a player
+    // short, with no way out but to disqualify someone who had done nothing
+    // wrong. They are passed over, and the next player goes through instead.
+    const playing = new Set(this.playingPlayers().map((p) => p.id));
+    const everyone = this.standings('qualifying');
+    const table = everyone.filter((s) => playing.has(s.playerId));
     if (table.length < cutSize) {
       throw new StoreError(
-        `Only ${table.length} ranked players; cannot cut to a top ${cutSize}.`);
+        `Only ${table.length} ranked players are still playing; `
+        + `cannot cut to a top ${cutSize}.`);
     }
 
     const qualified = table.slice(0, cutSize).map((s) => s.playerId);
@@ -1139,6 +1146,10 @@ class TournamentStore {
         + 'then cut again.');
     }
 
+    const passedOver = everyone
+      .filter((s) => !playing.has(s.playerId) && s.rank <= boundary.rank)
+      .map((s) => s.playerId);
+
     Object.assign(cut, {
       size: cutSize,
       carry: cutCarry,
@@ -1146,6 +1157,7 @@ class TournamentStore {
       applied: true,
       appliedAt: now(),
       qualified,
+      passedOver,
       carryScores: Object.fromEntries(
         table.slice(0, cutSize).map((s) => [s.playerId, s.tournamentScore.toString()])),
       freePlayForRest: freePlayForRest === null
@@ -1157,6 +1169,7 @@ class TournamentStore {
     this.changed('cut_applied', {
       size: cutSize, carry: cutCarry, rounds: cutRounds, qualified,
       names: table.slice(0, cutSize).map((s) => s.name),
+      passedOver,
     });
     return t;
   }
@@ -1168,7 +1181,7 @@ class TournamentStore {
         'Final rounds have already been seated. Delete them before undoing the cut.');
     }
     t.config = deepMerge(t.config, {
-      cut: { applied: false, qualified: [], carryScores: {} },
+      cut: { applied: false, qualified: [], carryScores: {}, passedOver: [] },
     });
     t.status = 'running';
     this.changed('cut_undone', {});

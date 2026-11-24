@@ -437,6 +437,64 @@ test('a cut refuses a tied cut line', () => {
   assert.throws(() => store.applyCut({ size: 4 }), /cut line is tied/);
 });
 
+/* As qualified8(), but with no two players level: 30, 25, 7, 6, -9, -10, ... */
+function qualified8Distinct() {
+  const store = newStore();
+  addPlayers(store, 8);
+  const round = store.generateRound();
+  const patterns = [[45000, 32000, 25000, 18000], [40000, 31000, 26000, 23000]];
+  for (const [i, table] of store.getRound(round.id).tables.entries()) {
+    store.saveTable(round.id, table.tableNumber,
+      table.seats.map((s, k) => ({ playerId: s.playerId, rawScore: patterns[i][k] })));
+  }
+  store.closeRound(round.id);
+  return store;
+}
+
+test('a withdrawn player is passed over at the cut', () => {
+  // They used to go through, and the final could not then be seated: three
+  // players for a table of four.
+  const store = qualified8Distinct();
+  const before = store.standings('qualifying');
+  const leader = before[0].playerId;
+  store.updatePlayer(leader, { status: 'withdrawn' });
+  store.applyCut({ size: 4, carry: 'reset', rounds: 1 });
+  const cut = store.doc.config.cut;
+  assert.ok(!cut.qualified.includes(leader));
+  assert.equal(cut.qualified.length, 4);
+  assert.deepEqual(cut.passedOver, [leader]);
+  assert.ok(cut.qualified.includes(before[4].playerId), 'the next player goes through');
+  const final = store.generateRound({ phase: 'final' });
+  assert.equal(final.tables.length, 1);
+  assert.equal(final.byes.length, 0);
+});
+
+test('a withdrawn player keeps their qualifying result', () => {
+  const store = qualified8Distinct();
+  const leader = store.standings('qualifying')[0];
+  store.updatePlayer(leader.playerId, { status: 'withdrawn' });
+  store.applyCut({ size: 4, carry: 'reset', rounds: 1 });
+  const row = store.standings('qualifying').find((s) => s.playerId === leader.playerId);
+  assert.equal(row.rank, leader.rank);
+  assert.equal(row.tournamentScore.toString(), leader.tournamentScore.toString());
+});
+
+test('too few players still in the event refuses the cut', () => {
+  const store = qualified8();
+  for (const s of store.standings('qualifying').slice(0, 5)) {
+    store.updatePlayer(s.playerId, { status: 'withdrawn' });
+  }
+  assert.throws(() => store.applyCut({ size: 4 }), /still playing/);
+});
+
+test('undoing the cut forgets who was passed over', () => {
+  const store = qualified8Distinct();
+  store.updatePlayer(store.standings('qualifying')[0].playerId, { status: 'withdrawn' });
+  store.applyCut({ size: 4, rounds: 1 });
+  store.undoCut();
+  assert.deepEqual(store.doc.config.cut.passedOver, []);
+});
+
 test('a manual tiebreak unblocks the cut', () => {
   const store = newStore();
   addPlayers(store, 8);

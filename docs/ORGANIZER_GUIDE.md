@@ -177,6 +177,10 @@ how many final hanchan, and choose what happens to the points:
 - **Carry the full score** — qualifying scores carry into the finals.
 - **Carry half** — a middle ground.
 
+Only players still in the event go through. Anyone marked **Withdrawn** keeps
+their qualifying place but is passed over, and the next player goes through in
+their seat. The Cut & finals tab names whoever was passed over.
+
 The first final round seats by rank (a single table takes ranks 1–4; with more
 than one table the seeds are spread). Later final rounds are re-paired so the
 same four do not sit together every time.

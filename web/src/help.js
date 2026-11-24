@@ -223,6 +223,8 @@ const TOPICS = [
       <p>When the qualifying rounds are done, the Cut &amp; finals tab takes the top
         players through. You choose how many go through, how many hanchan they play,
         and what they start with: nothing, their full qualifying score, or half of it.</p>
+      <p>Only players still in the event go through. A withdrawn player keeps their
+        qualifying place but is passed over, and the next player takes their seat.</p>
       <p>If two players are level across the cut line, the app <b>stops and asks you</b>
         rather than picking one. Breaking that tie is a tournament decision, and the
         rules put it in your hands.</p>

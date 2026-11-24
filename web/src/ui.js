@@ -1256,6 +1256,8 @@ function renderFinals() {
           ? ` <span class="muted small">carrying ${fmtScore(
             Number(cut.carryScores[id]) * (cut.carry === 'half' ? 0.5 : 1))}P</span>` : '')
         + '</li>').join('')}</ol>
+      ${(cut.passedOver || []).length ? `<p class="small muted">Passed over, having withdrawn:
+        ${esc(cut.passedOver.map((id) => (players.get(id) || {}).name || id).join(', '))}.</p>` : ''}
       <p class="small muted">${cut.carry === 'reset'
         ? 'Points reset to zero for the finals, as in the ARA format.'
         : cut.carry === 'half' ? 'Half of each qualifying score is carried in.'
@@ -1329,7 +1331,9 @@ function renderFinals() {
     });
     loadTournaments().then(render);
     render();
-    toast(`Cut made: top ${size} go through.`);
+    const skipped = (state.store.doc.config.cut.passedOver || []).length;
+    toast(`Cut made: top ${size} go through.`
+      + (skipped ? ` ${skipped} withdrawn player${skipped === 1 ? ' was' : 's were'} passed over.` : ''));
   }));
 
   const undo = $('#undoCut');

@@ -18,14 +18,14 @@
     RT:FILE scoring.js   line   1027  Scoring engine -- World Riichi Championship 2025.  <-- the arithmetic
     RT:FILE seating.js   line   1794  Seating and pairing engine.
     RT:FILE store.js     line   2434  Tournament operations -- the layer the interface sits on.
-    RT:FILE backup.js    line   3587  Backups: the CSV files, the folder on disk, and restore points.
-    RT:FILE persist.js   line   4235  The working copy: IndexedDB.
-    RT:FILE printing.js  line   4472  Printable pages.
-    RT:FILE discord.js   line   4782  Posting pairings and standings to a Discord channel.
-    RT:FILE help.js      line   5033  Help content: the help page, and the text behind every "?" bubble.
-    RT:FILE testdata.js  line   5316  Made-up rosters and made-up scores, for trying the program out.
-    RT:FILE tutorial.js  line   5442  The guided tutorial: a demo tournament that plays itself while ...
-    RT:FILE ui.js        line   5908  The browser interface.
+    RT:FILE backup.js    line   3632  Backups: the CSV files, the folder on disk, and restore points.
+    RT:FILE persist.js   line   4281  The working copy: IndexedDB.
+    RT:FILE printing.js  line   4518  Printable pages.
+    RT:FILE discord.js   line   4828  Posting pairings and standings to a Discord channel.
+    RT:FILE help.js      line   5079  Help content: the help page, and the text behind every "?" bubble.
+    RT:FILE testdata.js  line   5362  Made-up rosters and made-up scores, for trying the program out.
+    RT:FILE tutorial.js  line   5488  The guided tutorial: a demo tournament that plays itself while ...
+    RT:FILE ui.js        line   5954  The browser interface.
 
     To check how a score was worked out, read scoring.js: the formula is
     written out at the top of it, and rational.js is the exact arithmetic
@@ -3338,13 +3338,34 @@ class TournamentStore {
 
   /* ---------------------------------------------------------- penalties */
 
-  addPenalty(playerId, points, { reason = '', roundId = null } = {}) {
+  /**
+   * A point penalty off the tournament score.
+   *
+   * Every penalty belongs to a stage -- qualifying or the finals -- and counts
+   * only there. Without that, a penalty from the qualifying day was taken
+   * again in the finals: twice over under a full carry, since the carried
+   * score already had it, and into a final that was meant to start level under
+   * a reset. A penalty tied to a round takes that round's stage; otherwise it
+   * goes to the stage given, or to whichever the event is in now.
+   */
+  addPenalty(playerId, points, { reason = '', roundId = null, phase = null } = {}) {
     const t = this.require();
     this.findPlayer(playerId);
+    const round = roundId === null || roundId === '' ? null : this.findRound(roundId);
+    const stage = round ? round.phase : (phase || this.currentStage());
+    if (!SCORING_PHASES.includes(stage)) {
+      throw new StoreError('A penalty counts towards qualifying or the finals; '
+        + `"${stage}" is neither.`);
+    }
+    if (stage === 'final' && !(t.config.cut || {}).applied) {
+      throw new StoreError('No cut has been made, so there is no finals score to take '
+        + 'a penalty from yet.');
+    }
     const penalty = {
       id: t.nextPenaltyId++,
       playerId: Number(playerId),
-      roundId: roundId === null || roundId === '' ? null : Number(roundId),
+      roundId: round ? round.id : null,
+      phase: stage,
       points: R(points || 0).toString(),
       reason: String(reason || '').trim(),
       createdAt: now(),
@@ -3352,9 +3373,31 @@ class TournamentStore {
     t.penalties.push(penalty);
     this.changed('penalty_added', {
       penaltyId: penalty.id, playerId: penalty.playerId,
-      points: penalty.points, reason: penalty.reason,
+      points: penalty.points, reason: penalty.reason, phase: stage,
     });
     return penalty;
+  }
+
+  /** Qualifying until the cut is made, the finals after. */
+  currentStage() {
+    return (this.require().config.cut || {}).applied ? 'final' : 'qualifying';
+  }
+
+  /**
+   * The stage a penalty counts towards. Penalties saved before stages were
+   * recorded carry no phase; they are placed by when they were given, which
+   * is the only evidence there is.
+   */
+  penaltyPhase(penalty) {
+    const t = this.require();
+    if (penalty.roundId !== null && penalty.roundId !== undefined) {
+      const round = t.rounds.find((r) => r.id === Number(penalty.roundId));
+      if (round) return round.phase;
+    }
+    if (penalty.phase) return penalty.phase;
+    const cut = t.config.cut || {};
+    return cut.applied && cut.appliedAt && penalty.createdAt >= cut.appliedAt
+      ? 'final' : 'qualifying';
   }
 
   listPenalties() {
@@ -3363,6 +3406,7 @@ class TournamentStore {
     const rounds = new Map(t.rounds.map((r) => [r.id, r.number]));
     return t.penalties.map((p) => ({
       ...p,
+      phase: this.penaltyPhase(p),
       playerName: names.get(p.playerId) || '?',
       roundNumber: p.roundId === null ? null : (rounds.get(p.roundId) ?? null),
     }));
@@ -3433,6 +3477,7 @@ class TournamentStore {
     }
 
     for (const penalty of t.penalties) {
+      if (!phases.includes(this.penaltyPhase(penalty))) continue;
       const rec = records.get(penalty.playerId);
       if (rec) rec.penalties.push(R(penalty.points));
     }
@@ -3757,11 +3802,12 @@ function byeRows(details) {
 }
 
 function penaltyRows(store) {
+  // `phase` was added at the end, where a new column breaks nobody's sheet.
   const rows = [['penalty_id', 'player_id', 'player_name', 'round', 'points',
-    'reason', 'created_at']];
+    'reason', 'created_at', 'phase']];
   for (const p of store.listPenalties()) {
     rows.push([p.id, p.playerId, p.playerName, p.roundNumber ?? '',
-      p.points, p.reason, p.createdAt]);
+      p.points, p.reason, p.createdAt, p.phase]);
   }
   return rows;
 }
@@ -7205,12 +7251,18 @@ function renderFinals() {
         <input type="number" id="pPoints" value="${esc(t.rules.chomboPenalty)}"></label>
       <label class="field"><span>Reason</span>
         <input type="text" id="pReason" placeholder="late for hanchan 3"></label>
+      <label class="field"><span>Counts towards</span>
+        <select id="pPhase">
+          <option value="qualifying"${cut.applied ? '' : ' selected'}>Qualifying</option>
+          <option value="final"${cut.applied ? ' selected' : ' disabled'}>Finals</option>
+        </select></label>
     </div>
     <div class="btnrow"><button id="pAdd">Add penalty</button></div>
     ${penalties.length ? `<div class="scroll" style="margin-top:12px"><table class="data">
-      <thead><tr><th>Player</th><th class="num">Points</th><th>Reason</th><th>When</th><th></th></tr></thead>
+      <thead><tr><th>Player</th><th class="num">Points</th><th>Reason</th><th>Counts towards</th><th>When</th><th></th></tr></thead>
       <tbody>${penalties.map((p) => `<tr><td>${esc(p.playerName)}</td>
         <td class="num">&minus;${esc(p.points)}</td><td>${esc(p.reason)}</td>
+        <td>${p.phase === 'final' ? 'Finals' : 'Qualifying'}</td>
         <td class="small muted">${esc(when(p.createdAt))}</td>
         <td><button class="ghost danger" data-pdel="${p.id}">&times;</button></td></tr>`).join('')}
       </tbody></table></div>` : ''}
@@ -7237,7 +7289,7 @@ function renderFinals() {
 
   $('#pAdd').addEventListener('click', () => guard(() => {
     state.store.addPenalty(num($('#pPlayer').value), $('#pPoints').value,
-      { reason: $('#pReason').value });
+      { reason: $('#pReason').value, phase: $('#pPhase').value });
     loadStandings();
     render();
     toast('Penalty recorded.');

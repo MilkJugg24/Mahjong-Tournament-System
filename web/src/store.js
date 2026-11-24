@@ -903,13 +903,34 @@ class TournamentStore {
 
   /* ---------------------------------------------------------- penalties */
 
-  addPenalty(playerId, points, { reason = '', roundId = null } = {}) {
+  /**
+   * A point penalty off the tournament score.
+   *
+   * Every penalty belongs to a stage -- qualifying or the finals -- and counts
+   * only there. Without that, a penalty from the qualifying day was taken
+   * again in the finals: twice over under a full carry, since the carried
+   * score already had it, and into a final that was meant to start level under
+   * a reset. A penalty tied to a round takes that round's stage; otherwise it
+   * goes to the stage given, or to whichever the event is in now.
+   */
+  addPenalty(playerId, points, { reason = '', roundId = null, phase = null } = {}) {
     const t = this.require();
     this.findPlayer(playerId);
+    const round = roundId === null || roundId === '' ? null : this.findRound(roundId);
+    const stage = round ? round.phase : (phase || this.currentStage());
+    if (!SCORING_PHASES.includes(stage)) {
+      throw new StoreError('A penalty counts towards qualifying or the finals; '
+        + `"${stage}" is neither.`);
+    }
+    if (stage === 'final' && !(t.config.cut || {}).applied) {
+      throw new StoreError('No cut has been made, so there is no finals score to take '
+        + 'a penalty from yet.');
+    }
     const penalty = {
       id: t.nextPenaltyId++,
       playerId: Number(playerId),
-      roundId: roundId === null || roundId === '' ? null : Number(roundId),
+      roundId: round ? round.id : null,
+      phase: stage,
       points: R(points || 0).toString(),
       reason: String(reason || '').trim(),
       createdAt: now(),
@@ -917,9 +938,31 @@ class TournamentStore {
     t.penalties.push(penalty);
     this.changed('penalty_added', {
       penaltyId: penalty.id, playerId: penalty.playerId,
-      points: penalty.points, reason: penalty.reason,
+      points: penalty.points, reason: penalty.reason, phase: stage,
     });
     return penalty;
+  }
+
+  /** Qualifying until the cut is made, the finals after. */
+  currentStage() {
+    return (this.require().config.cut || {}).applied ? 'final' : 'qualifying';
+  }
+
+  /**
+   * The stage a penalty counts towards. Penalties saved before stages were
+   * recorded carry no phase; they are placed by when they were given, which
+   * is the only evidence there is.
+   */
+  penaltyPhase(penalty) {
+    const t = this.require();
+    if (penalty.roundId !== null && penalty.roundId !== undefined) {
+      const round = t.rounds.find((r) => r.id === Number(penalty.roundId));
+      if (round) return round.phase;
+    }
+    if (penalty.phase) return penalty.phase;
+    const cut = t.config.cut || {};
+    return cut.applied && cut.appliedAt && penalty.createdAt >= cut.appliedAt
+      ? 'final' : 'qualifying';
   }
 
   listPenalties() {
@@ -928,6 +971,7 @@ class TournamentStore {
     const rounds = new Map(t.rounds.map((r) => [r.id, r.number]));
     return t.penalties.map((p) => ({
       ...p,
+      phase: this.penaltyPhase(p),
       playerName: names.get(p.playerId) || '?',
       roundNumber: p.roundId === null ? null : (rounds.get(p.roundId) ?? null),
     }));
@@ -998,6 +1042,7 @@ class TournamentStore {
     }
 
     for (const penalty of t.penalties) {
+      if (!phases.includes(this.penaltyPhase(penalty))) continue;
       const rec = records.get(penalty.playerId);
       if (rec) rec.penalties.push(R(penalty.points));
     }

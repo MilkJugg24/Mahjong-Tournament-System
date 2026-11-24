@@ -200,7 +200,8 @@ const EXPECTED_HEADERS = {
   'byes.csv':
     ['round', 'phase', 'player_id', 'player_name', 'score'],
   'penalties.csv':
-    ['penalty_id', 'player_id', 'player_name', 'round', 'points', 'reason', 'created_at'],
+    ['penalty_id', 'player_id', 'player_name', 'round', 'points', 'reason', 'created_at',
+      'phase'],
   'players.csv':
     ['player_id', 'name', 'club', 'contact', 'external_id', 'role', 'status',
       'manual_tiebreak', 'notes'],

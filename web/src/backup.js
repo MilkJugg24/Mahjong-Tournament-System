@@ -169,11 +169,12 @@ function byeRows(details) {
 }
 
 function penaltyRows(store) {
+  // `phase` was added at the end, where a new column breaks nobody's sheet.
   const rows = [['penalty_id', 'player_id', 'player_name', 'round', 'points',
-    'reason', 'created_at']];
+    'reason', 'created_at', 'phase']];
   for (const p of store.listPenalties()) {
     rows.push([p.id, p.playerId, p.playerName, p.roundNumber ?? '',
-      p.points, p.reason, p.createdAt]);
+      p.points, p.reason, p.createdAt, p.phase]);
   }
   return rows;
 }

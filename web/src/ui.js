@@ -1296,12 +1296,18 @@ function renderFinals() {
         <input type="number" id="pPoints" value="${esc(t.rules.chomboPenalty)}"></label>
       <label class="field"><span>Reason</span>
         <input type="text" id="pReason" placeholder="late for hanchan 3"></label>
+      <label class="field"><span>Counts towards</span>
+        <select id="pPhase">
+          <option value="qualifying"${cut.applied ? '' : ' selected'}>Qualifying</option>
+          <option value="final"${cut.applied ? ' selected' : ' disabled'}>Finals</option>
+        </select></label>
     </div>
     <div class="btnrow"><button id="pAdd">Add penalty</button></div>
     ${penalties.length ? `<div class="scroll" style="margin-top:12px"><table class="data">
-      <thead><tr><th>Player</th><th class="num">Points</th><th>Reason</th><th>When</th><th></th></tr></thead>
+      <thead><tr><th>Player</th><th class="num">Points</th><th>Reason</th><th>Counts towards</th><th>When</th><th></th></tr></thead>
       <tbody>${penalties.map((p) => `<tr><td>${esc(p.playerName)}</td>
         <td class="num">&minus;${esc(p.points)}</td><td>${esc(p.reason)}</td>
+        <td>${p.phase === 'final' ? 'Finals' : 'Qualifying'}</td>
         <td class="small muted">${esc(when(p.createdAt))}</td>
         <td><button class="ghost danger" data-pdel="${p.id}">&times;</button></td></tr>`).join('')}
       </tbody></table></div>` : ''}
@@ -1328,7 +1334,7 @@ function renderFinals() {
 
   $('#pAdd').addEventListener('click', () => guard(() => {
     state.store.addPenalty(num($('#pPlayer').value), $('#pPoints').value,
-      { reason: $('#pReason').value });
+      { reason: $('#pReason').value, phase: $('#pPhase').value });
     loadStandings();
     render();
     toast('Penalty recorded.');

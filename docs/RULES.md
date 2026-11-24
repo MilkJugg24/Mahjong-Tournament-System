@@ -244,9 +244,16 @@ your event announces. The default is the WRC 30P.
 ### Other penalties
 
 Point penalties come off the tournament score and never change a table total
-(WRC Penalties 2025). Add them on the **Cut & finals** tab. For reference, WRC
-2025 uses 30P for a chombo, 30P for missing a hanchan, 10P for being ten minutes
-late, and 5P for repeated minor offences.
+(WRC Penalties 2025). Add them on the **Cut & finals** tab.
+
+Each penalty counts towards one stage, qualifying or the finals, and only there.
+It defaults to the stage the event is in when you add it. That matters at the
+cut: a carried score already includes the qualifying penalties, so taking them
+again in the finals would charge them twice, and a reset final is meant to start
+everyone level.
+
+For reference, WRC 2025 uses 30P for a chombo, 30P for missing a hanchan, 10P
+for being ten minutes late, and 5P for repeated minor offences.
 
 ### Tiebreakers
 

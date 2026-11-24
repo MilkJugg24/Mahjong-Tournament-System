@@ -351,6 +351,76 @@ test('a penalty reduces the score', () => {
   assert.equal(Number(after.tournamentScore.toString()), before - 30);
 });
 
+/* One qualifying round of eight, so two tables: the winners on 30, then 7. */
+function qualified8() {
+  const store = newStore();
+  addPlayers(store, 8);
+  const round = store.generateRound();
+  playRound(store, round.id);
+  store.closeRound(round.id);
+  return store;
+}
+const scoreOf = (rows, pid) => Number(rows.find((s) => s.playerId === pid).tournamentScore.toString());
+
+test('a qualifying penalty is not taken again under a full carry', () => {
+  const store = qualified8();
+  const winner = store.standings('qualifying')[0].playerId;
+  store.addPenalty(winner, 10, { reason: 'late' });
+  assert.equal(scoreOf(store.standings('qualifying'), winner), 20);
+  store.applyCut({ size: 4, carry: 'full', rounds: 1 });
+  // The carried 20 already has the penalty in it. It used to come out at 10.
+  assert.equal(scoreOf(store.standings('final'), winner), 20);
+});
+
+test('a qualifying penalty does not follow a player into a reset final', () => {
+  const store = qualified8();
+  const winner = store.standings('qualifying')[0].playerId;
+  store.addPenalty(winner, 10, { reason: 'late' });
+  store.applyCut({ size: 4, carry: 'reset', rounds: 1 });
+  assert.equal(scoreOf(store.standings('final'), winner), 0, 'the finals start level');
+});
+
+test('a penalty given after the cut counts towards the finals', () => {
+  const store = qualified8();
+  store.applyCut({ size: 4, carry: 'reset', rounds: 1 });
+  const finalist = store.standings('final')[0].playerId;
+  const before = scoreOf(store.standings('qualifying'), finalist);
+  const penalty = store.addPenalty(finalist, 5, { reason: 'slow play' });
+  assert.equal(penalty.phase, 'final');
+  assert.equal(scoreOf(store.standings('final'), finalist), -5);
+  assert.equal(scoreOf(store.standings('qualifying'), finalist), before);
+});
+
+test('a penalty tied to a round takes that round\'s stage', () => {
+  const store = qualified8();
+  const round = store.listRounds()[0];
+  store.applyCut({ size: 4, carry: 'reset', rounds: 1 });
+  const finalist = store.standings('final')[0].playerId;
+  const penalty = store.addPenalty(finalist, 5, { roundId: round.id, phase: 'final' });
+  assert.equal(penalty.phase, 'qualifying', 'the round decides, not the default');
+  assert.equal(scoreOf(store.standings('final'), finalist), 0);
+});
+
+test('a finals penalty is refused before the cut', () => {
+  const store = qualified8();
+  const pid = store.listPlayers()[0].id;
+  assert.throws(() => store.addPenalty(pid, 5, { phase: 'final' }), StoreError);
+});
+
+test('penalties saved without a stage are placed by when they were given', () => {
+  // Documents written before penalties recorded a stage.
+  const store = qualified8();
+  store.applyCut({ size: 4, carry: 'reset', rounds: 1 });
+  const at = store.doc.config.cut.appliedAt;
+  const [a, b] = store.standings('final').map((s) => s.playerId);
+  store.doc.penalties.push(
+    { id: 90, playerId: a, roundId: null, points: '7', reason: '', createdAt: '2000-01-01T00:00:00Z' },
+    { id: 91, playerId: b, roundId: null, points: '7', reason: '', createdAt: at },
+  );
+  assert.equal(scoreOf(store.standings('final'), a), 0, 'given before the cut: qualifying');
+  assert.equal(scoreOf(store.standings('final'), b), -7, 'given at the cut or after: finals');
+});
+
 test('a cut requires a closed round', () => {
   const store = newStore();
   addPlayers(store, 8);

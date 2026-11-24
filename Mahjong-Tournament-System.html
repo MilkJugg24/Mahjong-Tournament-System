@@ -14,18 +14,18 @@
     below, each behind a banner you can search for. The guide to the code
     is docs/CODE_MAP.md in the repository.
 
-    RT:FILE rational.js  line    799  Exact rational arithmetic.  <-- the arithmetic
-    RT:FILE scoring.js   line   1027  Scoring engine -- World Riichi Championship 2025.  <-- the arithmetic
-    RT:FILE seating.js   line   1794  Seating and pairing engine.
-    RT:FILE store.js     line   2434  Tournament operations -- the layer the interface sits on.
-    RT:FILE backup.js    line   3686  Backups: the CSV files, the folder on disk, and restore points.
-    RT:FILE persist.js   line   4337  The working copy: IndexedDB.
-    RT:FILE printing.js  line   4574  Printable pages.
-    RT:FILE discord.js   line   4889  Posting pairings and standings to a Discord channel.
-    RT:FILE help.js      line   5143  Help content: the help page, and the text behind every "?" bubble.
-    RT:FILE testdata.js  line   5428  Made-up rosters and made-up scores, for trying the program out.
-    RT:FILE tutorial.js  line   5554  The guided tutorial: a demo tournament that plays itself while ...
-    RT:FILE ui.js        line   6020  The browser interface.
+    RT:FILE rational.js  line    812  Exact rational arithmetic.  <-- the arithmetic
+    RT:FILE scoring.js   line   1040  Scoring engine -- World Riichi Championship 2025.  <-- the arithmetic
+    RT:FILE seating.js   line   1807  Seating and pairing engine.
+    RT:FILE store.js     line   2447  Tournament operations -- the layer the interface sits on.
+    RT:FILE backup.js    line   3699  Backups: the CSV files, the folder on disk, and restore points.
+    RT:FILE persist.js   line   4434  The working copy: IndexedDB.
+    RT:FILE printing.js  line   4671  Printable pages.
+    RT:FILE discord.js   line   4986  Posting pairings and standings to a Discord channel.
+    RT:FILE help.js      line   5240  Help content: the help page, and the text behind every "?" bubble.
+    RT:FILE testdata.js  line   5527  Made-up rosters and made-up scores, for trying the program out.
+    RT:FILE tutorial.js  line   5653  The guided tutorial: a demo tournament that plays itself while ...
+    RT:FILE ui.js        line   6119  The browser interface.
 
     To check how a score was worked out, read scoring.js: the formula is
     written out at the top of it, and rational.js is the exact arithmetic
@@ -642,6 +642,18 @@ textarea.rt-spot, input.rt-spot, select.rt-spot { border-color: var(--accent); }
   border-bottom: 1px solid var(--warn);
 }
 
+#backupBanner { display: none; }
+#backupBanner.on {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px;
+  padding: 7px 16px; font-size: .88rem;
+  color: var(--warn); background: var(--warn-soft);
+  border-bottom: 1px solid var(--warn);
+}
+#backupBanner.on.error {
+  color: var(--danger); background: var(--danger-soft); border-color: var(--danger);
+}
+#backupBanner button { padding: 3px 10px; }
+
 .btnrow.testtools {
   align-items: center; gap: 8px; padding: 9px 11px;
   border: 1px dashed var(--border-strong); border-radius: 9px;
@@ -682,6 +694,7 @@ label.field.check input[type="checkbox"] { width: auto; margin: 0; }
 </nav>
 
 <div id="testBanner" role="status"></div>
+<div id="backupBanner" role="alert"></div>
 
 <main>
 
@@ -4028,7 +4041,19 @@ class FolderTarget {
 
   get name() { return this.handle.name; }
 
-  /** Re-prompt only if the grant has lapsed. */
+  /**
+   * Whether the folder can be written to right now, without asking. A query
+   * needs no click, so this is what the page can safely call as it loads.
+   */
+  async hasPermission() {
+    return (await this.handle.queryPermission({ mode: 'readwrite' })) === 'granted';
+  }
+
+  /**
+   * Re-prompt only if the grant has lapsed. A prompt needs a click to answer
+   * -- the browser refuses one asked for as the page loads -- so call this
+   * from a button.
+   */
   async ensurePermission() {
     const opts = { mode: 'readwrite' };
     if ((await this.handle.queryPermission(opts)) === 'granted') return true;
@@ -4100,6 +4125,9 @@ class BackupManager {
     this.lastSnapshot = null;
     this.pendingSinceRound = 0;
     this.writing = Promise.resolve();
+    // A folder chosen in an earlier session whose grant has lapsed. Nothing is
+    // written while it waits; reconnect() asks again, from a click.
+    this.awaiting = null;
   }
 
   get mode() {
@@ -4113,7 +4141,28 @@ class BackupManager {
 
   setTarget(target) {
     this.target = target;
+    this.awaiting = null;
     this.pendingSinceRound = 0;
+  }
+
+  /**
+   * Hold on to a folder the browser will not let us write to yet.
+   *
+   * After a browser restart Chrome forgets the grant and wants it asked for
+   * again, but refuses a request made as the page loads. That used to fail
+   * silently, and backups simply stopped, with nothing outside the Backups tab
+   * to say so. Now the folder waits here and the interface says so everywhere.
+   */
+  setAwaiting(target) {
+    this.awaiting = target;
+  }
+
+  /** Ask for the waiting folder again. Call from a click. */
+  async reconnect() {
+    if (!this.awaiting) return Boolean(this.target);
+    if (!(await this.awaiting.ensurePermission())) return false;
+    this.setTarget(this.awaiting);
+    return true;
   }
 
   status() {
@@ -4125,6 +4174,7 @@ class BackupManager {
       lastError: this.lastError,
       pendingSinceRound: this.pendingSinceRound,
       supported: FolderTarget.supported,
+      awaitingFolder: this.awaiting ? this.awaiting.name : null,
     };
   }
 
@@ -4150,7 +4200,10 @@ class BackupManager {
       return Promise.resolve();
     }
     if (!this.target) {
-      if (SNAPSHOT_EVENTS.has(kind)) this.pendingSinceRound += 1;
+      // Rounds closed, as the warning says -- not every snapshot-worthy event,
+      // which counted creating the event and drawing a round as well, and
+      // reported three rounds overdue after the first one closed.
+      if (kind === 'round_closed') this.pendingSinceRound += 1;
       return Promise.resolve();
     }
     return this.queue(async () => {
@@ -4317,8 +4370,52 @@ function parsePlayerCsv(text) {
   return out;
 }
 
+/**
+ * What to tell the organiser about backups on every page, or null.
+ *
+ * Backups failing used to show only on the Backups tab, which nobody looks at
+ * mid-event. Kept pure so it can be tested without a browser.
+ *
+ *   paused   a folder is chosen but the browser wants permission again
+ *   failed   the last write to the folder went wrong
+ *   overdue  no folder access, and rounds have closed since the last download
+ */
+function backupNotice(status, { demo = false } = {}) {
+  if (demo || !status) return null;
+  if (status.awaitingFolder) {
+    return {
+      kind: 'paused',
+      level: 'warn',
+      message: `Backups are paused. After a restart the browser needs your permission `
+        + `again to write to "${status.awaitingFolder}". Your work is still saved in `
+        + 'this browser.',
+      action: 'Reconnect',
+    };
+  }
+  if (status.mode === 'folder' && status.lastError) {
+    return {
+      kind: 'failed',
+      level: 'error',
+      message: `The last backup failed: ${status.lastError}. Your work is still saved `
+        + 'in this browser.',
+      action: 'Open Backups',
+    };
+  }
+  if (status.mode === 'download' && status.pendingSinceRound > 0) {
+    const n = status.pendingSinceRound;
+    return {
+      kind: 'overdue',
+      level: 'warn',
+      message: `${n} round${n === 1 ? ' has' : 's have'} closed since the last saved `
+        + 'backup.',
+      action: 'Save a restore point',
+    };
+  }
+  return null;
+}
+
 const API = {
-  LIVE_FILES, SNAPSHOT_EVENTS,
+  LIVE_FILES, SNAPSHOT_EVENTS, backupNotice,
   csvField, csvText, slug, stamp,
   buildAll, restorePoint, readRestorePoint,
   FolderTarget, downloadFile, BackupManager, parsePlayerCsv,
@@ -5241,7 +5338,9 @@ const FIELD_HELP = {
 
   'backup-folder': 'The folder the CSVs are written to after every change. Pick one '
     + 'inside OneDrive, Google Drive or Dropbox and each round is copied off this '
-    + 'laptop automatically, with no account to set up.',
+    + 'laptop automatically, with no account to set up. After a restart the browser '
+    + 'asks for permission again; until you press Reconnect, backups are paused and '
+    + 'every page says so.',
 
   seed: 'The same seed always produces the same draw. Leave it alone unless you want '
     + 'to reproduce a particular seating, or need to re-draw and want a different one.',
@@ -6035,7 +6134,7 @@ const { ScoreRules, SEAT_WINDS, SEAT_WIND_NAMES, RULESET_PRESETS } = window.RT.s
 const { TournamentStore, StoreError } = window.RT.store;
 const {
   BackupManager, FolderTarget, buildAll, csvText, restorePoint, readRestorePoint,
-  parsePlayerCsv, downloadFile, slug, stamp,
+  parsePlayerCsv, downloadFile, slug, stamp, backupNotice,
 } = window.RT.backup;
 const { Persistence } = window.RT.persist;
 const { printPage, openPrintWindow } = window.RT.printing;
@@ -6052,7 +6151,13 @@ const WINDS = SEAT_WINDS;
 const PRESETS = RULESET_PRESETS;
 
 const persistence = new Persistence();
-const backups = new BackupManager({ onStatus: () => { if (state.view === 'backups') render(); } });
+const backups = new BackupManager({
+  onStatus: () => {
+    // A failed write has to show on whatever page the organiser is on.
+    renderBackupBanner();
+    if (state.view === 'backups') render();
+  },
+});
 
 const state = {
   store: new TournamentStore(),
@@ -6196,6 +6301,8 @@ function render() {
     banner.innerHTML = '';
   }
 
+  renderBackupBanner();
+
   if (state.view === 'home') renderHome();
   if (state.view === 'setup') renderSetup();
   if (state.view === 'players') renderPlayers();
@@ -6204,6 +6311,44 @@ function render() {
   if (state.view === 'finals') renderFinals();
   if (state.view === 'backups') renderBackups();
   if (state.view === 'help') renderHelp();
+}
+
+/** The backups notice, on every page: paused, failed or overdue. */
+function renderBackupBanner() {
+  const host = $('#backupBanner');
+  if (!host) return;
+  const notice = backupNotice(backups.status(), { demo: isTestEvent() });
+  if (!notice) {
+    host.className = '';
+    host.innerHTML = '';
+    return;
+  }
+  host.className = `on ${notice.level}`;
+  host.innerHTML = `<span>${esc(notice.message)}</span>
+    <button class="ghost" id="backupAct">${esc(notice.action)}</button>`;
+  $('#backupAct').addEventListener('click', () => guard(async () => {
+    if (notice.kind === 'paused') {
+      // This click is what lets the browser ask; it refuses on page load.
+      if (!(await backups.reconnect())) {
+        toast('The browser did not give permission. Try again, or choose the folder '
+          + 'afresh on the Backups tab.', 'warn', 9000);
+        return null;
+      }
+      if (hasTournament()) {
+        await backups.refresh(state.store);
+        await backups.snapshot(state.store, 'reconnected');
+      }
+      toast(`Backing up to "${backups.status().folder}" again.`);
+      render();
+    } else if (notice.kind === 'overdue' && hasTournament()) {
+      backups.downloadRestorePoint(state.store);
+      toast('Restore point saved to your downloads.');
+      render();
+    } else {
+      setView('backups');
+    }
+    return null;
+  }));
 }
 
 /* ---------------------------------------------------------------- home */
@@ -7390,7 +7535,18 @@ function renderBackups() {
   const s = backups.status();
   const files = Object.keys(buildAll(state.store)).sort();
 
-  const folderCard = s.mode === 'folder'
+  const pausedCard = s.awaitingFolder ? `<div class="card">
+        <h2>Backups are paused</h2>
+        <div class="issue warning">The browser has forgotten its permission to write to
+          <strong>${esc(s.awaitingFolder)}</strong>, which it does after a restart. Nothing
+          is being written there until you reconnect it. Your work is still saved in this
+          browser.</div>
+        <div class="btnrow">
+          <button class="primary big" id="reconnectBtn">Reconnect "${esc(s.awaitingFolder)}"</button>
+          <button class="ghost" id="pickFolder">Choose a different folder</button>
+        </div>
+      </div>` : '';
+  const folderCard = pausedCard || (s.mode === 'folder'
     ? `<div class="card">
         <h2>Backup folder</h2>
         <p class="small" style="color:var(--ok)">Writing to <strong>${esc(s.folder)}</strong>
@@ -7427,13 +7583,13 @@ function renderBackups() {
           can, and will then back up every round automatically. Here, save a restore point by hand
           after each round.</div>
         ${s.pendingSinceRound
-          ? `<div class="issue error">${s.pendingSinceRound} round(s) have closed since the last
+          ? `<div class="issue error">${s.pendingSinceRound} round${s.pendingSinceRound === 1 ? ' has' : 's have'} closed since the last
              saved backup.</div>` : ''}
         <div class="btnrow">
           <button class="primary big" id="dlRestore">Save a restore point</button>
           <button id="dlAll">Download all CSVs</button>
         </div>
-      </div>`;
+      </div>`);
 
   const dcfg = discordState.config || {};
   const isDemo = Boolean(t.config && t.config.demo);
@@ -7498,6 +7654,20 @@ function renderBackups() {
       await backups.refresh(state.store);
       render();
       toast(`Backing up to "${target.name}".`);
+    }));
+  }
+  const reconnect = $('#reconnectBtn');
+  if (reconnect) {
+    reconnect.addEventListener('click', () => guard(async () => {
+      if (!(await backups.reconnect())) {
+        toast('The browser did not give permission. Try again, or choose a folder.', 'warn', 9000);
+        return null;
+      }
+      await backups.refresh(state.store);
+      await backups.snapshot(state.store, 'reconnected');
+      render();
+      toast(`Backing up to "${backups.status().folder}" again.`);
+      return null;
     }));
   }
   const snap = $('#snapBtn');
@@ -8257,14 +8427,18 @@ async function init() {
   state.storageReason = check.reason || '';
   if (check.ok) await persistence.requestPersistence();
 
-  // Reuse the backup folder chosen in a previous session, if the grant holds.
+  // Reuse the backup folder chosen in a previous session. Only ask whether the
+  // grant still holds: asking for it again needs a click, and a request made
+  // here is refused -- which used to stop backups without a word. If it has
+  // lapsed, the folder waits and every page offers to reconnect it.
   try {
     const handle = await persistence.loadFolderHandle();
     if (handle) {
       const target = new FolderTarget(handle);
-      if (await target.ensurePermission()) backups.setTarget(target);
+      if (await target.hasPermission()) backups.setTarget(target);
+      else backups.setAwaiting(target);
     }
-  } catch { /* the folder is gone, or permission lapsed */ }
+  } catch { /* the folder is gone */ }
 
   try {
     discordState.config = await persistence.loadDiscord();

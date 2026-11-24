@@ -238,8 +238,15 @@ Worth knowing:
 or changing a scoring setting mid-event.
 
 If a backup ever fails, the change is still saved, the failure is recorded in
-the event log, and a red notice appears on the Backups tab. Usually it means the
-disk is full or the folder is not writable.
+the event log, and a red notice appears at the top of every page until it is
+fixed. Usually it means the disk is full or the folder is not writable.
+
+**After the laptop or the browser restarts,** Chrome and Edge forget their
+permission to write to the folder and ask for it again. Backups pause until you
+answer, and a notice at the top of every page says so: press **Reconnect** and
+allow it. The app then rewrites the current files and takes a snapshot, so
+nothing done while paused is missing from the folder. Your work is saved in the
+browser throughout.
 
 ### If the laptop dies
 

@@ -97,7 +97,9 @@ const FIELD_HELP = {
 
   'backup-folder': 'The folder the CSVs are written to after every change. Pick one '
     + 'inside OneDrive, Google Drive or Dropbox and each round is copied off this '
-    + 'laptop automatically, with no account to set up.',
+    + 'laptop automatically, with no account to set up. After a restart the browser '
+    + 'asks for permission again; until you press Reconnect, backups are paused and '
+    + 'every page says so.',
 
   seed: 'The same seed always produces the same draw. Leave it alone unless you want '
     + 'to reproduce a particular seating, or need to re-draw and want a different one.',

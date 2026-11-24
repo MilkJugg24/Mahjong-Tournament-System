@@ -304,6 +304,106 @@ test('a real tournament still is written to the backup folder', async () => {
   assert.equal(store.doc.config.demo, undefined);
 });
 
+/* ------------------------------------------- backups after a restart */
+
+/* A folder handle as the browser hands one back after a restart: the grant
+ * has lapsed, and asking again without a click throws. */
+function lapsedHandle(name = 'Event backups', { grantOnRequest = true } = {}) {
+  const calls = [];
+  return {
+    name,
+    calls,
+    async queryPermission() { calls.push('query'); return 'prompt'; },
+    async requestPermission() {
+      calls.push('request');
+      return grantOnRequest ? 'granted' : 'denied';
+    },
+  };
+}
+
+test('checking a lapsed folder never asks for permission', async () => {
+  // Asking needs a click. The page used to ask as it loaded, the browser
+  // refused, and backups stopped without a word.
+  const { FolderTarget } = require('../src/backup.js');
+  const handle = lapsedHandle();
+  assert.equal(await new FolderTarget(handle).hasPermission(), false);
+  assert.deepEqual(handle.calls, ['query']);
+});
+
+test('the page only checks the folder as it loads', () => {
+  const fs = require('node:fs');
+  const ui = fs.readFileSync(require.resolve('../src/ui.js'), 'utf8');
+  const start = ui.indexOf('async function init()');
+  assert.ok(start > 0, 'init() not found');
+  const body = ui.slice(start, ui.indexOf('\n}\n', start));
+  assert.match(body, /hasPermission\(\)/);
+  assert.doesNotMatch(body, /ensurePermission\(\)|requestPermission\(/,
+    'init() asks for permission, which the browser refuses without a click');
+});
+
+test('a lapsed folder pauses backups, and says so', async () => {
+  const { BackupManager, FolderTarget, backupNotice } = require('../src/backup.js');
+  const manager = new BackupManager();
+  manager.setAwaiting(new FolderTarget(lapsedHandle('Event backups')));
+  const status = manager.status();
+  assert.equal(status.awaitingFolder, 'Event backups');
+  const notice = backupNotice(status);
+  assert.equal(notice.kind, 'paused');
+  assert.match(notice.message, /Event backups/);
+  assert.equal(notice.action, 'Reconnect');
+});
+
+test('reconnecting resumes backups to the same folder', async () => {
+  const { BackupManager, FolderTarget, backupNotice } = require('../src/backup.js');
+  const manager = new BackupManager();
+  const handle = lapsedHandle('Event backups');
+  manager.setAwaiting(new FolderTarget(handle));
+  assert.equal(await manager.reconnect(), true);
+  assert.equal(manager.status().mode, 'folder');
+  assert.equal(manager.status().folder, 'Event backups');
+  assert.equal(manager.status().awaitingFolder, null);
+  assert.equal(backupNotice(manager.status()), null);
+  assert.deepEqual(handle.calls, ['query', 'request']);
+});
+
+test('a refused reconnect stays paused', async () => {
+  const { BackupManager, FolderTarget, backupNotice } = require('../src/backup.js');
+  const manager = new BackupManager();
+  manager.setAwaiting(new FolderTarget(lapsedHandle('x', { grantOnRequest: false })));
+  assert.equal(await manager.reconnect(), false);
+  assert.equal(backupNotice(manager.status()).kind, 'paused');
+});
+
+test('a failed write is reported on every page, not just the Backups tab', () => {
+  const { backupNotice } = require('../src/backup.js');
+  const notice = backupNotice({ mode: 'folder', lastError: 'disk full', pendingSinceRound: 0 });
+  assert.equal(notice.kind, 'failed');
+  assert.equal(notice.level, 'error');
+  assert.match(notice.message, /disk full/);
+});
+
+test('only closed rounds count towards an overdue backup', async () => {
+  const { BackupManager } = require('../src/backup.js');
+  const manager = new BackupManager();
+  const store = builtTournament({ players: 4, rounds: 1 });
+  for (const kind of ['tournament_created', 'round_generated', 'table_saved', 'round_closed']) {
+    await manager.handleChange(store, kind, {});
+  }
+  assert.equal(manager.status().pendingSinceRound, 1);
+});
+
+test('an overdue manual backup is reported', () => {
+  const { backupNotice } = require('../src/backup.js');
+  assert.equal(backupNotice({ mode: 'download', pendingSinceRound: 2 }).kind, 'overdue');
+  assert.equal(backupNotice({ mode: 'download', pendingSinceRound: 0 }), null);
+});
+
+test('nothing is reported for a test tournament, or when all is well', () => {
+  const { backupNotice } = require('../src/backup.js');
+  assert.equal(backupNotice({ awaitingFolder: 'x' }, { demo: true }), null);
+  assert.equal(backupNotice({ mode: 'folder', lastError: null, pendingSinceRound: 0 }), null);
+});
+
 /* ------------------------------------------------- a non-riichi ruleset */
 
 function mcrTournament() {

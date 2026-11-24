@@ -341,7 +341,19 @@ class FolderTarget {
 
   get name() { return this.handle.name; }
 
-  /** Re-prompt only if the grant has lapsed. */
+  /**
+   * Whether the folder can be written to right now, without asking. A query
+   * needs no click, so this is what the page can safely call as it loads.
+   */
+  async hasPermission() {
+    return (await this.handle.queryPermission({ mode: 'readwrite' })) === 'granted';
+  }
+
+  /**
+   * Re-prompt only if the grant has lapsed. A prompt needs a click to answer
+   * -- the browser refuses one asked for as the page loads -- so call this
+   * from a button.
+   */
   async ensurePermission() {
     const opts = { mode: 'readwrite' };
     if ((await this.handle.queryPermission(opts)) === 'granted') return true;
@@ -413,6 +425,9 @@ class BackupManager {
     this.lastSnapshot = null;
     this.pendingSinceRound = 0;
     this.writing = Promise.resolve();
+    // A folder chosen in an earlier session whose grant has lapsed. Nothing is
+    // written while it waits; reconnect() asks again, from a click.
+    this.awaiting = null;
   }
 
   get mode() {
@@ -426,7 +441,28 @@ class BackupManager {
 
   setTarget(target) {
     this.target = target;
+    this.awaiting = null;
     this.pendingSinceRound = 0;
+  }
+
+  /**
+   * Hold on to a folder the browser will not let us write to yet.
+   *
+   * After a browser restart Chrome forgets the grant and wants it asked for
+   * again, but refuses a request made as the page loads. That used to fail
+   * silently, and backups simply stopped, with nothing outside the Backups tab
+   * to say so. Now the folder waits here and the interface says so everywhere.
+   */
+  setAwaiting(target) {
+    this.awaiting = target;
+  }
+
+  /** Ask for the waiting folder again. Call from a click. */
+  async reconnect() {
+    if (!this.awaiting) return Boolean(this.target);
+    if (!(await this.awaiting.ensurePermission())) return false;
+    this.setTarget(this.awaiting);
+    return true;
   }
 
   status() {
@@ -438,6 +474,7 @@ class BackupManager {
       lastError: this.lastError,
       pendingSinceRound: this.pendingSinceRound,
       supported: FolderTarget.supported,
+      awaitingFolder: this.awaiting ? this.awaiting.name : null,
     };
   }
 
@@ -463,7 +500,10 @@ class BackupManager {
       return Promise.resolve();
     }
     if (!this.target) {
-      if (SNAPSHOT_EVENTS.has(kind)) this.pendingSinceRound += 1;
+      // Rounds closed, as the warning says -- not every snapshot-worthy event,
+      // which counted creating the event and drawing a round as well, and
+      // reported three rounds overdue after the first one closed.
+      if (kind === 'round_closed') this.pendingSinceRound += 1;
       return Promise.resolve();
     }
     return this.queue(async () => {
@@ -630,8 +670,52 @@ function parsePlayerCsv(text) {
   return out;
 }
 
+/**
+ * What to tell the organiser about backups on every page, or null.
+ *
+ * Backups failing used to show only on the Backups tab, which nobody looks at
+ * mid-event. Kept pure so it can be tested without a browser.
+ *
+ *   paused   a folder is chosen but the browser wants permission again
+ *   failed   the last write to the folder went wrong
+ *   overdue  no folder access, and rounds have closed since the last download
+ */
+function backupNotice(status, { demo = false } = {}) {
+  if (demo || !status) return null;
+  if (status.awaitingFolder) {
+    return {
+      kind: 'paused',
+      level: 'warn',
+      message: `Backups are paused. After a restart the browser needs your permission `
+        + `again to write to "${status.awaitingFolder}". Your work is still saved in `
+        + 'this browser.',
+      action: 'Reconnect',
+    };
+  }
+  if (status.mode === 'folder' && status.lastError) {
+    return {
+      kind: 'failed',
+      level: 'error',
+      message: `The last backup failed: ${status.lastError}. Your work is still saved `
+        + 'in this browser.',
+      action: 'Open Backups',
+    };
+  }
+  if (status.mode === 'download' && status.pendingSinceRound > 0) {
+    const n = status.pendingSinceRound;
+    return {
+      kind: 'overdue',
+      level: 'warn',
+      message: `${n} round${n === 1 ? ' has' : 's have'} closed since the last saved `
+        + 'backup.',
+      action: 'Save a restore point',
+    };
+  }
+  return null;
+}
+
 const API = {
-  LIVE_FILES, SNAPSHOT_EVENTS,
+  LIVE_FILES, SNAPSHOT_EVENTS, backupNotice,
   csvField, csvText, slug, stamp,
   buildAll, restorePoint, readRestorePoint,
   FolderTarget, downloadFile, BackupManager, parsePlayerCsv,

@@ -6684,7 +6684,9 @@ function renderSetup() {
           <option value="table_points"${sel(model, 'table_points')}>Table points by rank (MCR)</option>
         </select></label>
       <label class="field"><span>Players per table</span>
-        <input type="number" id="sPpt" min="2" max="4" value="${num(r.playersPerTable) || 4}"></label>
+        <input type="number" id="sPpt" value="${num(r.playersPerTable) || 4}" readonly disabled
+          title="Three-player rules are not implemented, so this is fixed.">
+        <span class="hint">Fixed: three-player rules are not implemented.</span></label>
       <label class="field"><span>Starting points <button type="button" class="qmark" data-help="table-total" aria-label="What is this?">?</button></span>
         <input type="number" id="sStart" step="${model === 'table_points' ? 1 : 1000}"
           value="${num(r.startingPoints)}"></label>
@@ -7504,6 +7506,7 @@ function openEntry(tableNumber, { round = state.round, amend = false } = {}) {
           <input type="text" id="eReason" placeholder="e.g. South's score was typed as 32,000; the sheet says 23,000"></label>` : ''}
       </div>
       <div class="checksum" id="eChecksum"><span>Table total</span><span class="v">&mdash;</span></div>
+      <p class="small muted" id="eHint" style="margin:6px 0 0"></p>
       <div id="ePreview"></div>
       <details class="adv">
         <summary>Chombo and penalties</summary>
@@ -7519,7 +7522,6 @@ function openEntry(tableNumber, { round = state.round, amend = false } = {}) {
         <span class="spacer"></span>
         ${!amend && table.status !== 'pending' ? '<button class="danger" id="eClear">Clear</button>' : ''}
       </div>
-      <p class="small muted" id="eHint" style="margin-bottom:0"></p>
     </div>
   </div>`;
 
@@ -7900,12 +7902,17 @@ function renderFinals() {
     toast('Penalty recorded.');
   }));
 
-  $$('[data-pdel]').forEach((b) => b.addEventListener('click', () => guard(() => {
-    state.store.deletePenalty(num(b.dataset.pdel));
-    loadStandings();
-    render();
-    toast('Penalty removed.');
-  })));
+  $$('[data-pdel]').forEach((b) => b.addEventListener('click', () => {
+    const row = b.closest('tr');
+    const who = row ? row.cells[0].textContent : 'this player';
+    confirmThen(`Remove the penalty against ${who}? It comes straight back off their score.`,
+      () => guard(() => {
+        state.store.deletePenalty(num(b.dataset.pdel));
+        loadStandings();
+        render();
+        toast('Penalty removed.');
+      }));
+  }));
 }
 
 /* ------------------------------------------------------------- backups */

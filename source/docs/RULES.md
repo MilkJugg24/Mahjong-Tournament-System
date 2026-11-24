@@ -286,8 +286,9 @@ affect placement tiebreakers.
 
 ### Players per table
 
-Four. Settable for three-player variants, but the uma must then have three
-entries and the three-player rules themselves are not implemented.
+Four, and fixed. Three-player rules are not implemented, so the Setup tab shows
+the number without letting it change; an editable box suggested a three-player
+event would work when it would not.
 
 ---
 

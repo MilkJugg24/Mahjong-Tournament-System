@@ -2379,9 +2379,12 @@ async function postToDiscord(which, { quiet = false } = {}) {
         if (!round) continue;
         payload = pairingsMessage(t, round);
       } else {
-        const rows = state.store.standings(state.scope);
+        // Always the event's own order. It used to post whichever view was
+        // last clicked on the Standings tab, so glancing at Qualifying after
+        // the cut sent the qualifying table to the channel instead.
+        const rows = state.store.standings('overall');
         payload = standingsMessage(t, rows, {
-          scope: state.scope,
+          scope: 'overall',
           precision: state.store.rules.scorePrecision,
         });
       }

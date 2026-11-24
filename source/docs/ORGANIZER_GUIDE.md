@@ -263,7 +263,7 @@ over the internet.
    and press **Save**.
 
 From then on the posts update by themselves: the pairings when a round is drawn
-or seats change, the standings as tables are entered and rounds close. Each
+or seats change, the Overall standings as tables are entered and rounds close. Each
 update edits the existing post rather than adding a new message. **Post now**
 sends both straight away.
 

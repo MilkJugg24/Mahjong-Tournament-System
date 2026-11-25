@@ -79,7 +79,23 @@ test('the pie is empty when time is up, and never runs backwards', () => {
 test('the pie sits beside the countdown, in the clock\'s colour', () => {
   const { clockHtml } = require('../src/display.js');
   const html = clockHtml(clockReading(running(), T0 + 80 * MIN));
-  assert.match(html, /<div class="clockline warn"><div class="time">10:00<\/div><svg class="pie"/);
+  assert.match(html, /<div class="clockline warn"><div class="time">[^]*?<\/div><svg class="pie"/);
+});
+
+test('each digit of the time has a cell of its own, so the time never changes width', () => {
+  const { clockHtml } = require('../src/display.js');
+  const html = clockHtml(clockReading(running(), T0 + 80 * MIN));
+  const dg = (d) => `<span class="dg">${d}</span>`;
+  assert.ok(html.includes(`<div class="time">${dg(1)}${dg(0)}:${dg(0)}${dg(0)}</div>`), html);
+  assert.match(displayShell('Display Cup'), /\.time \.dg \{[^}]*width: 1ch/,
+    'every cell as wide as a 0, whichever digit is in it');
+});
+
+test('the pie is centred on the digits, not on their line', () => {
+  const css = displayShell('Display Cup');
+  assert.match(css, /\.clockline \{[^}]*align-items: baseline/);
+  assert.match(css, /\.pie \{ top: calc\(var\(--pie\) \/ 2 - 1\.6cap\); \}/,
+    'half the pie, less half of digits 3.2em tall');
 });
 
 /* ----------------------------------------------------------- the display */
@@ -190,7 +206,7 @@ test('clock-only mode shows the clock and nothing else', () => {
   const html = displayBody({
     tournament: store.doc, round, mode: 'clock', reading: clockReading(running(), T0 + MIN),
   });
-  assert.match(html, /89:00/);
+  assert.equal(html.match(/<div class="time">(.*?)<\/div>/)[1].replace(/<[^>]+>/g, ''), '89:00');
   assert.doesNotMatch(html, /Amy/);
 });
 

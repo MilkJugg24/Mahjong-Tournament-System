@@ -92,12 +92,24 @@ function pieHtml(reading) {
     + ' transform="rotate(-90 16 16)"/></svg>';
 }
 
+/**
+ * The time, each digit in a cell of its own, one digit wide.
+ *
+ * Measured, not assumed: in Segoe UI at this weight a 1 is a fifth narrower
+ * than a 0 and a 4 a little wider, and asking for tabular figures changed
+ * nothing. So the time changed width nearly every second, and everything
+ * lined up against it -- the colon, the pie -- shuffled from side to side.
+ */
+function timeHtml(ms) {
+  return formatClock(ms).replace(/\d/g, (d) => `<span class="dg">${d}</span>`);
+}
+
 /** The clock's own markup: refreshed every second on its own. */
 function clockHtml(reading) {
   if (!reading) return '';
   const cls = reading.over ? 'over' : (reading.warn ? 'warn' : '');
   const note = clockNote(reading);
-  return `<div class="clockline ${cls}"><div class="time">${formatClock(reading.remainingMs)}</div>`
+  return `<div class="clockline ${cls}"><div class="time">${timeHtml(reading.remainingMs)}</div>`
     + `${pieHtml(reading)}</div>`
     + (note ? `<div class="note">${esc(note)}</div>` : '');
 }
@@ -216,12 +228,22 @@ header { display: flex; justify-content: space-between; align-items: flex-start;
 h1 { margin: 0; font-size: 1.5em; line-height: 1.15; }
 h2 { margin: .15em 0 0; font-size: 1.05em; font-weight: 500; color: var(--muted); }
 .clock { text-align: right; }
-.clockline { display: inline-flex; align-items: center; gap: .35em; }
+.clockline { display: inline-flex; align-items: baseline; gap: .35em; }
 .clockline.warn { color: #f2c35b; }
 .clockline.over { color: #ff8a80; }
 .clock .time { font-size: 3.2em; font-weight: 800; line-height: 1; font-variant-numeric: tabular-nums; }
+/* A digit's cell is the width of a 0, whatever the digit, so the time is the
+   same width from one second to the next. */
+.time .dg { display: inline-block; width: 1ch; text-align: center; }
 .clock .note { font-size: .8em; color: var(--muted); margin-top: .25em; }
-.pie { width: 2.5em; height: 2.5em; flex: none; }
+/* The pie is centred on the digits, not on the line they sit in, which has
+   room below for descenders that digits do not have. It stands on the
+   baseline, then drops half its height less half the digits' height: the
+   time is 3.2em, so its digits are 3.2cap tall. Where cap is not known,
+   digits are taken to be .7em, as in most interface fonts. */
+.pie { --pie: 2.5em; width: var(--pie); height: var(--pie); flex: none;
+  position: relative; top: calc(var(--pie) / 2 - 1.12em); }
+@supports (top: 1cap) { .pie { top: calc(var(--pie) / 2 - 1.6cap); } }
 .pie .disc { fill: rgba(255,255,255,.07); stroke: currentColor; stroke-opacity: .45; stroke-width: 1; }
 .pie .left { fill: none; stroke: currentColor; }
 
@@ -270,9 +292,10 @@ h2 { margin: .15em 0 0; font-size: 1.05em; font-weight: 500; color: var(--muted)
 .only-clock { height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; }
 .only-clock h1 { font-size: 2.4vw; color: var(--muted); font-weight: 500; }
 .only-clock .clock { text-align: center; }
-.only-clock .clock .time { font-size: 24vw; }
-.only-clock .clockline { gap: 3vw; }
-.only-clock .pie { width: 17vw; height: 17vw; }
+/* Sized through the line, not the time and pie apart, so the time is still
+   3.2em of it (24vw) and the pie still centres on its digits. */
+.only-clock .clockline { font-size: 7.5vw; gap: .4em; }
+.only-clock .pie { --pie: 2.25em; }
 .only-clock .clock .note { font-size: 2.6vw; }
 .idle { font-size: 1.2em; color: var(--muted); }
 `;

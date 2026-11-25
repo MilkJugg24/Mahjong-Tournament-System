@@ -143,7 +143,63 @@ function guard(fn) {
   }
 }
 
-const confirmThen = (message, fn) => (window.confirm(message) ? fn() : null);
+/* ------------------------------------------------------------ dialogs
+ *
+ * In-app questions, in place of the browser's own confirm() and prompt().
+ * Those looked like a different program, answered every question with a bare
+ * "OK", and some browsers offer to silence a page that uses them often. These
+ * name the action, mark one that destroys something, and take Enter and
+ * Escape. They sit above the score sheet, so the sheet can ask too.
+ *
+ * ask(question) resolves true or false; with `input`, the text or null. A
+ * question is a string, or { text, confirm, danger, input: { label, value } }.
+ */
+function ask(question) {
+  const q = typeof question === 'string' ? { text: question } : question;
+  return new Promise((resolve) => {
+    const host = $('#ask');
+    const field = q.input
+      ? `<label class="field" style="margin-top:12px"><span>${esc(q.input.label)}</span>
+        <input type="text" id="askInput" value="${esc(q.input.value || '')}" autocomplete="off"></label>`
+      : '';
+    host.innerHTML = `<div class="ask-backdrop" id="askBackdrop">
+      <div class="ask" role="alertdialog" aria-modal="true" aria-labelledby="askText">
+        <p id="askText">${esc(q.text)}</p>${field}
+        <div class="btnrow ask-actions">
+          <span class="spacer"></span>
+          <button class="ghost" id="askCancel">Cancel</button>
+          <button class="${q.danger ? 'danger' : 'primary'}" id="askOk">${esc(q.confirm || 'OK')}</button>
+        </div>
+      </div>
+    </div>`;
+    function onKey(e) {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        cancel();
+      } else if (e.key === 'Enter' && document.activeElement !== $('#askCancel')) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        ok();
+      }
+    }
+    // Capture, so Escape closes this question and not the score sheet under it.
+    document.addEventListener('keydown', onKey, true);
+    const done = (answer) => {
+      document.removeEventListener('keydown', onKey, true);
+      host.innerHTML = '';
+      resolve(answer);
+    };
+    const ok = () => done(q.input ? $('#askInput').value : true);
+    const cancel = () => done(q.input ? null : false);
+    $('#askOk').addEventListener('click', ok);
+    $('#askCancel').addEventListener('click', cancel);
+    $('#askBackdrop').addEventListener('click', (e) => { if (e.target.id === 'askBackdrop') cancel(); });
+    (q.input ? $('#askInput') : $('#askOk')).focus();
+  });
+}
+
+const confirmThen = (question, fn) => ask(question).then((yes) => (yes ? fn() : null));
 
 const hasTournament = () => Boolean(state.store.doc);
 
@@ -281,7 +337,11 @@ function renderHome() {
     b.addEventListener('click', () => openTournament(b.dataset.open)));
   $$('[data-del]', host).forEach((b) =>
     b.addEventListener('click', () => confirmThen(
-      'Delete this tournament from this browser? Any backup files already written are kept.',
+      {
+        text: 'Delete this tournament from this browser? Any backup files already written are kept.',
+        confirm: 'Delete',
+        danger: true,
+      },
       async () => {
         await persistence.deleteTournament(b.dataset.del);
         if (state.store.doc && state.store.doc.id === b.dataset.del) state.store.doc = null;
@@ -297,7 +357,9 @@ function renderHome() {
       const doc = readRestorePoint(await file.text());
       doc.id = doc.id || `t${Date.now()}`;
       const conflict = restoreConflict(await persistence.loadTournament(doc.id), doc);
-      if (conflict && !window.confirm(conflict.message)) {
+      if (conflict && !(await ask({
+        text: conflict.message, confirm: 'Replace it', danger: conflict.newer,
+      }))) {
         e.target.value = '';
         toast('Nothing was loaded. The copy in this browser is unchanged.');
         return;
@@ -637,7 +699,8 @@ function renderPlayers() {
 
   const sel = (a, b) => (a === b ? ' selected' : '');
   const rows = players.map((p) => `
-    <tr data-pid="${p.id}" data-name="${esc(p.name.toLowerCase())}">
+    <tr data-pid="${p.id}" data-name="${esc(p.name.toLowerCase())}"
+      class="${here && p.status === 'active' && !p.checkedIn ? 'absent' : ''}">
       <td><input type="checkbox" data-here="${p.id}"${p.checkedIn ? ' checked' : ''}
         aria-label="${esc(p.name)} is here"></td>
       <td><input type="text" value="${esc(p.name)}" data-f="name" style="min-width:9em"></td>
@@ -686,7 +749,7 @@ function renderPlayers() {
   <div class="card">
     <h2>Roster <span class="muted small">(${players.length})</span></h2>
     ${players.length ? `<div class="row signin" style="margin-bottom:10px;gap:10px;flex-wrap:wrap">
-      <label class="field" style="flex:1;min-width:220px;margin:0"><span>Find or sign in
+      <label class="field" style="flex:1 1 280px;margin:0"><span>Find or sign in
         <button type="button" class="qmark" data-help="sign-in" aria-label="What is this?">?</button></span>
         <input type="search" id="rosterFind" placeholder="Type a name, Enter to sign them in"
           autocomplete="off"></label>
@@ -694,7 +757,7 @@ function renderPlayers() {
       ${here && absent ? `<button class="ghost" id="withdrawAbsent">Withdraw the ${absent} not signed in</button>` : ''}
       ${here ? '<button class="ghost" id="clearSignIn">Clear sign-in</button>' : ''}
     </div>
-    <div class="scroll"><table class="data">
+    <div class="scroll"><table class="data roster">
       <thead><tr><th title="Signed in">Here</th><th>Name</th><th>Club</th><th>Contact</th><th>Role <button type="button" class="qmark" data-help="player-role" aria-label="What is this?">?</button></th><th>Status <button type="button" class="qmark" data-help="player-status" aria-label="What is this?">?</button></th>
       <th class="num" title="Used only to settle a tie a coin toss decided">Tiebreak</th><th></th></tr></thead>
       <tbody>${rows}</tbody></table></div>
@@ -790,8 +853,11 @@ function renderPlayers() {
   if (withdrawAbsent) {
     withdrawAbsent.addEventListener('click', () => {
       const names = state.store.absentPlayers().map((p) => p.name);
-      confirmThen(`Withdraw ${names.length} not signed in: ${names.join(', ')}?`
-        + ' They can be set back to playing on this tab.', () => guard(() => {
+      confirmThen({
+        text: `Withdraw ${names.length} not signed in: ${names.join(', ')}?`
+          + ' They can be set back to playing on this tab.',
+        confirm: `Withdraw ${names.length}`,
+      }, () => guard(() => {
         const gone = state.store.withdrawAbsent();
         render();
         toast(`${gone.length} withdrawn.`);
@@ -802,7 +868,10 @@ function renderPlayers() {
   const clearSignIn = $('#clearSignIn');
   if (clearSignIn) {
     clearSignIn.addEventListener('click', () => confirmThen(
-      'Clear everyone\'s sign-in, to start again for another day?', () => guard(() => {
+      {
+        text: 'Clear everyone\'s sign-in, to start again for another day?',
+        confirm: 'Clear sign-in',
+      }, () => guard(() => {
         state.store.clearCheckIn();
         render();
         toast('Sign-in cleared.');
@@ -831,7 +900,9 @@ function renderPlayers() {
   }));
 
   $$('[data-rm]', $('#playersBody')).forEach((b) => b.addEventListener('click', () =>
-    confirmThen('Remove this player from the roster?', () => guard(() => {
+    confirmThen({
+      text: 'Remove this player from the roster?', confirm: 'Remove', danger: true,
+    }, () => guard(() => {
       state.store.deletePlayer(num(b.dataset.rm));
       render();
       toast('Player removed.');
@@ -1001,18 +1072,15 @@ function renderRound() {
     : '';
 
   $('#roundBody').innerHTML = `
-  <div class="grid three" style="margin-bottom:14px">
+  <div class="grid four" style="margin-bottom:14px">
     <div class="stat"><div class="k">Reported</div><div class="v">${reported} / ${total}</div>
       <div class="n">${total - reported} table${total - reported === 1 ? '' : 's'} to go</div></div>
     <div class="stat"><div class="k">Repeat pairings</div><div class="v">${num(metrics.repeatPairs)}</div>
       <div class="n">players meeting again</div></div>
     <div class="stat"><div class="k">Seat wind spread</div><div class="v">${num(metrics.worstWindImbalance)}</div>
       <div class="n">worst gap for any player</div></div>
+    ${clockStat(rnd)}
   </div>
-
-  ${clockCard(rnd)}
-
-  ${displayCard()}
 
   <div class="card">
     <div class="row" style="margin-bottom:12px">
@@ -1038,8 +1106,6 @@ function renderRound() {
     <p>${rnd.freePlayOut.map((p) => esc(p.name)).join(', ')}
       <span class="muted small">&mdash; too few left over to make up another table.</span></p></div>` : ''}
 
-  ${moveCard(rnd)}
-
   <div class="card">
     <div class="row">
       <button class="primary big" id="closeBtn">
@@ -1054,6 +1120,10 @@ function renderRound() {
       <button class="ghost" id="tdScores">Fill every table with scores</button>
     </div>` : ''}
   </div>
+
+  ${moveCard(rnd)}
+
+  ${displayCard()}
 
   ${renderRoundHistory(rounds)}`;
 
@@ -1092,7 +1162,7 @@ function renderRound() {
   const reseat = $('#reseatBtn');
   if (reseat) {
     reseat.addEventListener('click', () => confirmThen(
-      "Draw this round's seating again?", () => guard(() => {
+      { text: "Draw this round's seating again?", confirm: 'Redraw' }, () => guard(() => {
         state.round = state.store.reseatRound(rnd.id);
         render();
         toast('Seating redrawn.');
@@ -1102,7 +1172,13 @@ function renderRound() {
   $('#closeBtn').addEventListener('click', () => {
     const missing = total - reported;
     confirmThen(
-      missing ? `${missing} table(s) have no result. Close the round anyway?` : 'Close this round?',
+      missing
+        ? {
+          text: `${missing} table${missing === 1 ? ' has' : 's have'} no result. Close the round anyway?`,
+          confirm: 'Close anyway',
+          danger: true,
+        }
+        : { text: 'Close this round? Its scores are locked once it closes.', confirm: 'Close round' },
       () => guard(() => {
         state.store.closeRound(rnd.id, { force: missing > 0 });
         state.round = null;
@@ -1126,39 +1202,39 @@ const clockMinutes = () => num(state.store.doc.config.hanchanMinutes) || 90;
 const readClock = (clock) =>
   clockReading(clock, Date.now(), { defaultMinutes: clockMinutes() });
 
-function clockCard(rnd) {
+/* The line under the clock: what is happening, or how long a hanchan is. */
+const clockLine = (reading) => clockNote(reading)
+  || `${Math.round(reading.durationMs / 60000)}-minute hanchan`;
+
+/* The clock as the fourth tile of the round's stat row, beside what it times. */
+function clockStat(rnd) {
   const reading = readClock(rnd.clock);
-  const label = reading.running ? 'Pause' : (reading.started ? 'Resume' : 'Start the clock');
+  const label = reading.running ? 'Pause' : (reading.started ? 'Resume' : 'Start');
   const tone = reading.over ? 'over' : (reading.warn ? 'warn' : '');
-  return `<div class="card">
-    <div class="row" style="gap:12px;flex-wrap:wrap;align-items:center">
-      <h2 style="margin:0">Clock</h2>
+  return `<div class="stat clockstat">
+    <div class="k">Clock <button type="button" class="qmark" data-help="round-clock"
+      aria-label="What is this?">?</button></div>
+    <div class="clockrow">
       <span class="roundclock ${tone}" id="rcClock">${formatClock(reading.remainingMs)}</span>
-      <span class="small muted" id="rcNote">${esc(clockNote(reading))}</span>
-      <span class="spacer"></span>
       <button class="${reading.running ? 'ghost' : 'primary'}" id="rcToggle">${label}</button>
       ${reading.started ? '<button class="ghost" id="rcReset">Reset</button>' : ''}
     </div>
-    <p class="small muted" style="margin-bottom:0">A ${Math.round(reading.durationMs / 60000)}-minute
-      hanchan. The ARA calls the time left at 30, 45, 60 and 75 minutes; when time is up the
-      hand in play finishes and no new one starts.</p>
+    <div class="n" id="rcNote">${esc(clockLine(reading))}</div>
   </div>`;
 }
 
+/* One row: what the room display shows, and the button to open it. */
 function displayCard() {
   const isOpen = display.win && !display.win.closed;
   const modes = [['seating', 'Seating'], ['standings', 'Standings'], ['clock', 'Clock only']];
   return `<div class="card">
-    <div class="row" style="gap:10px;flex-wrap:wrap;align-items:center">
-      <h2 style="margin:0">Room display <button type="button" class="qmark" data-help="room-display"
-        aria-label="What is this?">?</button></h2>
-      <span class="spacer"></span>
-      <button class="ghost" id="dispOpen">${isOpen ? 'Bring the display forward' : 'Open the room display'}</button>
-    </div>
-    <div class="btnrow" style="margin-top:8px;align-items:center">
-      <span class="small muted">Showing:</span>
+    <div class="row" style="gap:8px">
+      <h2 style="margin:0 6px 0 0">Room display <button type="button" class="qmark"
+        data-help="room-display" aria-label="What is this?">?</button></h2>
       ${modes.map(([m, text]) => `<button class="${display.mode === m ? 'primary' : 'ghost'}"
         data-dmode="${m}">${text}</button>`).join('')}
+      <span class="spacer"></span>
+      <button class="ghost" id="dispOpen">${isOpen ? 'Bring the display forward' : 'Open the room display'}</button>
     </div>
   </div>`;
 }
@@ -1177,7 +1253,7 @@ function attachClockControls(rnd) {
   const reset = $('#rcReset');
   if (reset) {
     reset.addEventListener('click', () => confirmThen(
-      `Reset the clock to ${clockMinutes()} minutes?`, () => guard(() => {
+      { text: `Reset the clock to ${clockMinutes()} minutes?`, confirm: 'Reset' }, () => guard(() => {
         state.round = state.store.resetClock(rnd.id);
         render();
       })));
@@ -1246,7 +1322,7 @@ function tickClocks() {
     el.textContent = formatClock(reading.remainingMs);
     el.className = `roundclock ${reading.over ? 'over' : (reading.warn ? 'warn' : '')}`;
     const note = $('#rcNote');
-    if (note) note.textContent = clockNote(reading);
+    if (note) note.textContent = clockLine(reading);
   }
   if (display.win && !display.win.closed) {
     const clock = display.win.document.getElementById('clock');
@@ -1283,12 +1359,14 @@ function moveCard(rnd) {
   if (inRound.length < 2 && !outside.length) return '';
   const opts = (list) => list
     .map(([id, text]) => `<option value="${id}">${esc(text)}</option>`).join('');
-  return `<div class="card">
-    <h2>Change seats <button type="button" class="qmark" data-help="change-seats"
-      aria-label="What is this?">?</button></h2>
+  // Folded away: it is needed now and then, and it used to sit, full size, between
+  // the tables and the button that closes the round.
+  return `<details class="card fold">
+    <summary>Change seats <span class="hint">a swap, a late arrival, a no-show</span></summary>
     <p class="small muted">Swap two players, give a seat to someone sitting out, or bring in
       someone who is not in this round &mdash; a late arrival, or a sit-in for a no-show.
-      Nobody else at the table moves.</p>
+      Nobody else at the table moves. <button type="button" class="qmark" data-help="change-seats"
+      aria-label="What is this?">?</button></p>
     <div class="grid two">
       <label class="field"><span>Move</span><select id="mvA">${opts(inRound)}</select></label>
       <label class="field"><span>With</span><select id="mvB">
@@ -1297,7 +1375,7 @@ function moveCard(rnd) {
       </select></label>
     </div>
     <div class="btnrow"><button id="mvBtn">Change seats</button></div>
-  </div>`;
+  </details>`;
 }
 
 function tableCard(table) {
@@ -1382,7 +1460,9 @@ function attachRoundHistory() {
     toast('Round reopened.');
   })));
   $$('[data-delround]').forEach((b) => b.addEventListener('click', () =>
-    confirmThen('Delete this round and its results?', () => guard(() => {
+    confirmThen({
+      text: 'Delete this round and its results?', confirm: 'Delete round', danger: true,
+    }, () => guard(() => {
       state.store.deleteRound(num(b.dataset.delround));
       state.round = null;
       loadStandings();
@@ -1547,7 +1627,11 @@ function openEntry(tableNumber, { round = state.round, amend = false } = {}) {
             <span class="small muted">Only if the signed sheet really says this. The table is
               marked, and the log keeps it.</span></div>`);
           $('#eOverride').addEventListener('click', () => confirmThen(
-            `Record table ${tableNumber} as signed, although it does not add up?`,
+            {
+              text: `Record table ${tableNumber} as signed, although it does not add up?`,
+              confirm: 'Record as signed',
+              danger: true,
+            },
             () => save(true)));
         }
       } catch (err) {
@@ -1614,8 +1698,12 @@ function openEntry(tableNumber, { round = state.round, amend = false } = {}) {
 
   const verify = $('#eVerify');
   if (verify) {
-    verify.addEventListener('click', () => {
-      const who = window.prompt('Verified by (referee or staff name):', $('#eBy').value || '');
+    verify.addEventListener('click', async () => {
+      const who = await ask({
+        text: `Mark table ${tableNumber} as checked against the signed sheet.`,
+        confirm: 'Mark verified',
+        input: { label: 'Verified by (referee or staff name)', value: $('#eBy').value || '' },
+      });
       if (who === null) return;
       guard(() => {
         state.round = state.store.verifyTable(rnd.id, tableNumber, who);
@@ -1629,7 +1717,8 @@ function openEntry(tableNumber, { round = state.round, amend = false } = {}) {
   const clear = $('#eClear');
   if (clear) {
     clear.addEventListener('click', () => confirmThen(
-      `Clear the result for table ${tableNumber}?`, () => guard(() => {
+      { text: `Clear the result for table ${tableNumber}?`, confirm: 'Clear', danger: true },
+      () => guard(() => {
         state.round = state.store.clearTable(rnd.id, tableNumber);
         loadStandings();
         closeSheet();
@@ -1828,7 +1917,11 @@ function renderFinals() {
 
   const undo = $('#undoCut');
   if (undo) {
-    undo.addEventListener('click', () => confirmThen('Undo the cut?', () => guard(() => {
+    undo.addEventListener('click', () => confirmThen({
+      text: 'Undo the cut? Everyone goes back to the qualifying standings.',
+      confirm: 'Undo the cut',
+      danger: true,
+    }, () => guard(() => {
       state.store.undoCut();
       render();
       toast('Cut undone.');
@@ -1846,7 +1939,11 @@ function renderFinals() {
   $$('[data-pdel]').forEach((b) => b.addEventListener('click', () => {
     const row = b.closest('tr');
     const who = row ? row.cells[0].textContent : 'this player';
-    confirmThen(`Remove the penalty against ${who}? It comes straight back off their score.`,
+    confirmThen({
+      text: `Remove the penalty against ${who}? It comes straight back off their score.`,
+      confirm: 'Remove penalty',
+      danger: true,
+    },
       () => guard(() => {
         state.store.deletePenalty(num(b.dataset.pdel));
         loadStandings();
@@ -2037,7 +2134,7 @@ function renderBackups() {
   }));
 
   $('#dcClear').addEventListener('click', () => confirmThen(
-    'Forget the webhook? Posts already in Discord stay there.',
+    { text: 'Forget the webhook? Posts already in Discord stay there.', confirm: 'Forget it', danger: true },
     () => guard(async () => {
       await saveDiscordConfig(null);
       discordState.last = '';

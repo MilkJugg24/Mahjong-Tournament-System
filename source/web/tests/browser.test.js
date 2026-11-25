@@ -190,8 +190,9 @@ test('the built file runs a whole tournament from file://', { skip: SKIP }, asyn
 
     await t.test('the round closes and standings appear', async () => {
       await enterTable(page, 2, [40000, 31000, 26000, 23000]);
-      page.on('dialog', (d) => d.accept());
       await page.click('#closeBtn');
+      // Closing asks first, in the app's own dialog now, not the browser's.
+      await page.click('#askOk');
       await page.waitForSelector('#genBtn', { timeout: 15000 });
 
       await page.click('nav.tabs button[data-view="standings"]');
@@ -614,8 +615,8 @@ test('an MCR event runs on table points', { skip: SKIP }, async (t) => {
 
     await page.click('#eSave');
     await page.waitForSelector('#backdrop', { state: 'detached', timeout: 10000 });
-    page.on('dialog', (d) => d.accept());
     await page.click('#closeBtn');
+    await page.click('#askOk');
     await page.waitForSelector('#genBtn', { timeout: 15000 });
 
     await page.click('nav.tabs button[data-view="standings"]');
@@ -883,6 +884,7 @@ test('test mode generates a field and says so on every page', { skip: SKIP }, as
         { timeout: 20000 });
 
       await page.click('#closeBtn');
+      await page.click('#askOk');
       await page.click('nav.tabs button[data-view="standings"]');
       await page.waitForSelector('#view-standings.active');
       await page.waitForFunction(

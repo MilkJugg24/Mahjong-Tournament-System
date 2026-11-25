@@ -122,7 +122,7 @@ label.field { display: block; margin-bottom: 12px; }
 label.field > span { display: block; font-size: .85rem; color: var(--muted); margin-bottom: 4px; font-weight: 500; }
 label.field > span .hint { font-weight: 400; }
 
-input[type="text"], input[type="number"], input[type="email"], select, textarea {
+input[type="text"], input[type="search"], input[type="number"], input[type="email"], select, textarea {
   width: 100%; font: inherit; color: var(--text); background: var(--surface);
   border: 1px solid var(--border-strong); border-radius: 8px; padding: 9px 11px;
 }
@@ -182,6 +182,30 @@ table.data tr.me { background: var(--accent-soft); }
 .stat .k { font-size: .78rem; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
 .stat .v { font-size: 1.5rem; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.2; }
 .stat .n { font-size: .82rem; color: var(--muted); }
+.grid.four { grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); }
+/* Two by two on a phone, rather than four tiles filling the screen before a table. */
+@media (max-width: 560px) { .grid.four { grid-template-columns: 1fr 1fr; gap: 10px; } }
+
+/* The round clock, as the fourth tile in the round's stat row. */
+.stat.clockstat .clockrow { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.stat.clockstat .clockrow button { padding: 4px 10px; font-size: .85rem; }
+.roundclock { font-family: var(--mono); font-size: 1.5rem; font-weight: 700;
+  font-variant-numeric: tabular-nums; line-height: 1.2; }
+.roundclock.warn { color: var(--warn); }
+.roundclock.over { color: var(--danger); }
+
+/* A card that folds away: for the tools a round needs only now and then. */
+details.card.fold > summary { cursor: pointer; font-weight: 600; font-size: 1.05rem; }
+details.card.fold[open] > summary { margin-bottom: 10px; }
+details.card.fold > summary .hint { font-weight: 400; margin-left: 6px; color: var(--muted); font-size: .85rem; }
+
+/* The roster: compact rows, so a whole room fits on a laptop screen. */
+table.data.roster td { padding-top: 4px; padding-bottom: 4px; }
+table.data.roster input[type="text"], table.data.roster input[type="number"],
+table.data.roster select { padding: 5px 8px; font-size: .9rem; }
+table.data.roster select { min-width: 7.4em; }
+table.data.roster tr.absent td:not(:first-child) { opacity: .55; }
+#rosterFind { width: 100%; }
 
 /* --------------------------------------------------------- table cards */
 
@@ -192,10 +216,6 @@ table.data tr.me { background: var(--accent-soft); }
   display: block; width: 100%; font: inherit; color: var(--text);
 }
 .tcard:hover { border-color: var(--accent); box-shadow: var(--shadow); }
-.roundclock { font-family: var(--mono); font-size: 1.9rem; font-weight: 700;
-  font-variant-numeric: tabular-nums; line-height: 1; }
-.roundclock.warn { color: var(--warn); }
-.roundclock.over { color: var(--danger); }
 .tcard.free { border-style: dashed; cursor: default; color: var(--muted); }
 .tcard.free:hover { border-color: var(--border); box-shadow: none; }
 .tcard.entered { border-left-color: var(--warn); }
@@ -208,6 +228,20 @@ table.data tr.me { background: var(--accent-soft); }
 .tcard li .nm { flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tcard li .sc { font-family: var(--mono); font-variant-numeric: tabular-nums; color: var(--muted); }
 .tcard li .hs { font-family: var(--mono); font-weight: 600; min-width: 3.4em; text-align: right; }
+
+/* ------------------------------------------------------------- questions */
+
+.ask-backdrop {
+  position: fixed; inset: 0; z-index: 100; background: rgba(0,0,0,.45);
+  display: flex; align-items: center; justify-content: center; padding: 20px;
+}
+.ask {
+  background: var(--surface); color: var(--text); border: 1px solid var(--border);
+  border-radius: 14px; box-shadow: var(--shadow); padding: 18px 20px 14px;
+  width: 100%; max-width: 440px;
+}
+.ask p { margin: 0; line-height: 1.5; }
+.ask-actions { margin-top: 18px; justify-content: flex-end; }
 
 /* -------------------------------------------------------------- dialog */
 

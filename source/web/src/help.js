@@ -38,6 +38,11 @@ const FIELD_HELP = {
     + 'takes the seat, and the player they replace leaves the round with no score; add '
     + 'a penalty on the Cut & finals tab if your rules give one for a missed hanchan.',
 
+  'round-clock': 'Start it when play begins. It counts down from Minutes per hanchan on '
+    + 'the Setup tab, turns amber with fifteen minutes left, and at zero the hand in play '
+    + 'finishes and no new one starts. The ARA calls the time left at 30, 45, 60 and 75 '
+    + 'minutes. Pause and Resume lose nothing, and closing the round stops it.',
+
   'room-display': 'A second window for a projector or a big screen: drag it there and '
     + 'make it full screen. It shows the round clock with either where everyone sits '
     + '(alphabetically, so players can find themselves), the standings, or the clock '

@@ -58,15 +58,73 @@ function seatedStore() {
   return { store, round };
 }
 
-test('the seating is listed alphabetically, with each player\'s table', () => {
+/* The tables' blocks, as [table number, [names in seat order]]. */
+function tablesShown(html) {
+  return [...html.matchAll(/<section class="tbl[^"]*"><h3>Table (\d+)[\s\S]*?<\/section>/g)]
+    .map(([block, n]) => [Number(n),
+      [...block.matchAll(/<span class="nm">([^<]*)<\/span>/g)].map((m) => m[1])]);
+}
+
+test('the seating is shown table by table, in seat order', () => {
   const { store, round } = seatedStore();
   const html = displayBody({ tournament: store.doc, round, mode: 'seating' });
-  const amy = html.indexOf('Amy');
-  const cy = html.indexOf('Cy');
-  assert.ok(amy > 0 && cy > amy, 'alphabetical');
-  assert.match(html, /sitting out/, 'the bye is shown');
-  assert.match(html, /&lt;b&gt;Zed&lt;\/b&gt;/, 'names are escaped');
+  const shown = tablesShown(html);
+  assert.deepEqual(shown.map(([n]) => n), round.tables.map((t) => t.tableNumber));
+  const seated = round.tables[0].seats.map((s) => s.name
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'));
+  assert.deepEqual(shown[0][1], seated, 'East, South, West, North');
+});
+
+test('players sitting out are listed under the tables', () => {
+  const { store, round } = seatedStore();
+  const html = displayBody({ tournament: store.doc, round, mode: 'seating' });
+  assert.match(html, /Sitting out<\/span> /);
+  assert.ok(html.indexOf('Sitting out') > html.lastIndexOf('</section>'), 'below the tables');
+});
+
+test('names are escaped', () => {
+  const { store, round } = seatedStore();
+  const html = displayBody({ tournament: store.doc, round, mode: 'seating' });
+  assert.match(html, /&lt;b&gt;Zed&lt;\/b&gt;/);
   assert.doesNotMatch(html, /<b>Zed/);
+});
+
+test('a sit-in at a table is marked as a sub', () => {
+  const store = new TournamentStore();
+  store.create('Sub Cup', { config: { seating: { iterations: 300, restarts: 1 } } });
+  store.addPlayersBulk('Ann,A\nBob,B\nCat,C');
+  const sam = store.addPlayer('Sam', { role: 'sit_in' });
+  const round = store.generateRound();
+  const html = displayBody({ tournament: store.doc, round, mode: 'seating' });
+  assert.match(html, /<li class="sub">[^]*?<span class="nm">Sam<\/span><span class="tag">sub<\/span>/);
+  assert.match(html, /class="legend"/, 'the tag is explained');
+  assert.equal((html.match(/class="sub"/g) || []).length, 1, 'only the sit-in is marked');
+  assert.ok(round.tables[0].seats.some((s) => s.playerId === sam.id && s.sitIn));
+});
+
+test('a stand-in for a withdrawn finalist is marked as a sub too', () => {
+  const { store, round } = seatedStore();
+  const standIn = round.tables[0].seats[2];
+  const html = displayBody({
+    tournament: store.doc,
+    round: { ...round, substitutes: [{ playerId: standIn.playerId, name: standIn.name }] },
+    mode: 'seating',
+  });
+  assert.equal((html.match(/class="sub"/g) || []).length, 1);
+});
+
+test('subs not playing this round are listed under the tables', () => {
+  const { store, round } = seatedStore();
+  const html = displayBody({
+    tournament: store.doc, round, mode: 'seating', sitInsOut: [{ name: 'Sue' }],
+  });
+  assert.match(html, /Subs not playing<\/span> Sue/);
+});
+
+test('no sub, no legend', () => {
+  const { store, round } = seatedStore();
+  assert.doesNotMatch(displayBody({ tournament: store.doc, round, mode: 'seating' }),
+    /class="legend"/);
 });
 
 test('the standings show the event\'s order', () => {

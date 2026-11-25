@@ -19,7 +19,7 @@ const {
 const { Persistence } = window.RT.persist;
 const { printPage, openPrintWindow } = window.RT.printing;
 const {
-  clockReading, formatClock, clockNote, clockHtml, displayBody, displayShell,
+  clockReading, formatClock, clockNote, clockHtml, displayBody, displayShell, fitToScreen,
 } = window.RT.display;
 
 /* The room display window, if open, and what it is showing. */
@@ -1270,7 +1270,12 @@ function attachDisplayControls() {
   }));
 }
 
-/** Open the room display, or bring it forward if it is already open. */
+/**
+ * Open the room display in a new tab, or bring it forward if it is open.
+ * A tab rather than a sized pop-up window: browsers let a page open one with
+ * no fuss, and dragging a tab out onto the projector screen is something
+ * everyone already knows how to do.
+ */
 function openDisplay() {
   if (display.win && !display.win.closed) {
     display.win.focus();
@@ -1279,12 +1284,15 @@ function openDisplay() {
   // Named, so a display left open from before a reload is reused, not doubled.
   const win = window.open('', 'rt-room-display');
   if (!win) {
-    throw new Error('The browser blocked the display window. Allow pop-ups for this page, '
-      + 'then try again.');
+    throw new Error('The browser blocked the room display from opening. Allow pop-ups for '
+      + 'this page, then try again.');
   }
   win.document.open();
   win.document.write(displayShell(state.store.doc ? state.store.doc.name : 'Room display'));
   win.document.close();
+  // The text is sized to the screen, so it is sized again when the screen changes:
+  // dragged to the projector, made full screen.
+  win.addEventListener('resize', () => fitToScreen(win));
   display.win = win;
   refreshDisplay();
 }
@@ -1301,6 +1309,14 @@ function refreshDisplay() {
   if (!t || !body) return;
   const open = state.store.openRound();
   const round = open ? state.store.getRound(open.id) : null;
+  // Sit-ins with no seat this round, listed under the tables as free to sub.
+  const present = new Set(round
+    ? round.tables.flatMap((tb) => tb.seats.map((s) => s.playerId))
+      .concat(round.byes.map((b) => b.playerId))
+    : []);
+  const sitInsOut = round
+    ? state.store.playingPlayers().filter((p) => p.role === 'sit_in' && !present.has(p.id))
+    : [];
   body.innerHTML = displayBody({
     tournament: t,
     round,
@@ -1308,7 +1324,9 @@ function refreshDisplay() {
     reading: open ? readClock(open.clock) : null,
     mode: display.mode,
     precision: state.store.rules.scorePrecision,
+    sitInsOut,
   });
+  fitToScreen(display.win);
 }
 
 /** Once a second: move both clocks on, without redrawing anything else. */

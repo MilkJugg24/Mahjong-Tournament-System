@@ -161,16 +161,21 @@ the Setup tab. Press **Start the clock** when play begins; **Pause** and
 minutes left, and at zero says the hand in play finishes and no new one starts.
 Closing the round stops it.
 
-**Open the room display** for a second window to put on a projector or a big
-screen: drag it there and make it full screen. It shows the clock with one of:
+**Open the room display** opens a new tab for a projector or a big screen. Drag
+the tab onto that screen, or out into a window of its own, and make it full
+screen. It shows the clock with one of:
 
-- **Seating** — everyone in the round alphabetically, with their table and
-  wind, so players find themselves without crowding the laptop;
+- **Seating** — every table with its four players in seat order, so players
+  find themselves without crowding the laptop. A sub, whether a sit-in or a
+  stand-in for a withdrawn finalist, is shown in its own colour and tagged, so
+  the table knows one of its four is playing unranked. Underneath are the
+  players sitting out and the subs not playing this round;
 - **Standings** — the event's standings, with a line at the cut;
 - **Clock only** — the clock, as large as it will go.
 
-Choose which from the round page. The display keeps itself up to date as you
-work, and needs this window to stay open.
+Choose which from the round page. The text sizes itself to fill the screen:
+large for a small event, smaller for a big one, and never needing a scroll.
+The display keeps itself up to date as you work, so leave the main tab open.
 
 ### 4. Play and report
 

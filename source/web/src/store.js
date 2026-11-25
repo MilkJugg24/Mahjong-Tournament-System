@@ -685,6 +685,8 @@ class TournamentStore {
             playerId: s.playerId,
             name: player ? player.name : null,
             club: player ? player.club : '',
+            // So a table can be shown as playing with a sub.
+            sitIn: Boolean(player && player.role === 'sit_in'),
             rawScore: res ? res.rawScore : null,
             chombo: res ? res.chombo : 0,
             penaltyPoints: res ? res.penaltyPoints : '0',

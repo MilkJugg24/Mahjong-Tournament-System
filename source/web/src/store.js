@@ -400,12 +400,8 @@ class TournamentStore {
     };
   }
 
-  /** The draw's pool: every ranked player, plus only the sit-ins a table needs. */
-  withSitInsAsNeeded(pool) {
-    const { sitInsUsed } = this.fieldPlan(pool);
-    const ranked = pool.filter((p) => p.role !== 'sit_in');
-    if (!sitInsUsed) return ranked;
-    // Spread the work: the sit-ins who have been seated least go in first.
+  /** How many times each player has been seated so far, across every round. */
+  seatedCounts() {
     const seated = new Map();
     for (const round of this.require().rounds) {
       for (const table of round.tables) {
@@ -414,9 +410,61 @@ class TournamentStore {
         }
       }
     }
+    return seated;
+  }
+
+  /** The draw's pool: every ranked player, plus only the sit-ins a table needs. */
+  withSitInsAsNeeded(pool) {
+    const { sitInsUsed } = this.fieldPlan(pool);
+    const ranked = pool.filter((p) => p.role !== 'sit_in');
+    if (!sitInsUsed) return ranked;
+    // Spread the work: the sit-ins who have been seated least go in first.
+    const seated = this.seatedCounts();
     const sitIns = pool.filter((p) => p.role === 'sit_in')
       .sort((a, b) => (seated.get(a.id) || 0) - (seated.get(b.id) || 0) || a.id - b.id);
     return ranked.concat(sitIns.slice(0, sitInsUsed));
+  }
+
+  /**
+   * Seats in the final left empty by finalists who have since withdrawn or
+   * been disqualified, given the pool about to be drawn. Only seats a
+   * finalist emptied count: a cut that is not a multiple of four leaves
+   * seats short by design, and those are byes as always.
+   */
+  finalVacancies(pool) {
+    const ppt = this.rules.playersPerTable;
+    const qualified = ((this.require().config.cut || {}).qualified || []).map(Number);
+    const short = (ppt - (pool.length % ppt)) % ppt;
+    const finalists = new Set(pool.map((p) => p.id));
+    const gone = qualified.filter((id) => !finalists.has(id)).length;
+    // Seats a substitute already took are not vacant.
+    const filled = pool.filter((p) => !qualified.includes(p.id)).length;
+    return Math.min(short, Math.max(0, gone - filled));
+  }
+
+  /**
+   * Who takes the seat of a finalist who has withdrawn, when a final is drawn.
+   *
+   * The cut skips anyone withdrawn at the time, but a finalist who leaves
+   * after the cut used to leave every later final undrawable -- three players
+   * for a table of four -- and the cut could not be undone once a final was
+   * seated. Now the empty seat is filled: by a sit-in first, which is what
+   * sit-ins are for, then by the best-placed player who missed the cut. Either
+   * way they play unranked in the final, as a sit-in would, and Change seats
+   * can put someone else there.
+   */
+  finalSubstitutes(pool) {
+    const need = this.finalVacancies(pool);
+    if (!need) return [];
+    const inPool = new Set(pool.map((p) => p.id));
+    const free = this.playingPlayers().filter((p) => !inPool.has(p.id));
+    const seated = this.seatedCounts();
+    const sitIns = free.filter((p) => p.role === 'sit_in')
+      .sort((a, b) => (seated.get(a.id) || 0) - (seated.get(b.id) || 0) || a.id - b.id);
+    const place = new Map(this.standings('qualifying').map((s, i) => [s.playerId, i]));
+    const ranked = free.filter((p) => p.role !== 'sit_in')
+      .sort((a, b) => (place.get(a.id) ?? Infinity) - (place.get(b.id) ?? Infinity));
+    return sitIns.concat(ranked).slice(0, need);
   }
 
   byeScoresFor(byes) {
@@ -463,9 +511,22 @@ class TournamentStore {
     }
 
     let pool;
+    let substitutes = [];
     if (playerIds === null) {
       pool = this.phasePool(phase);
-      if (phase !== 'final') pool = this.withSitInsAsNeeded(pool);
+      if (phase !== 'final') {
+        pool = this.withSitInsAsNeeded(pool);
+      } else {
+        substitutes = this.finalSubstitutes(pool);
+        pool = pool.concat(substitutes);
+        const vacant = this.finalVacancies(pool);
+        if (vacant) {
+          throw new StoreError(
+            `A finalist has withdrawn, and nobody is left to take ${vacant === 1 ? 'the seat'
+              : `${vacant} seats`} in the final. Add a sit-in on the Players tab, or set the `
+            + 'finalist back to playing.');
+        }
+      }
     } else {
       const known = new Map(t.players.map((p) => [p.id, p]));
       pool = playerIds.map((i) => known.get(Number(i))).filter(Boolean);
@@ -584,6 +645,8 @@ class TournamentStore {
           : []),
       byes: plan.byes.map((playerId) => ({ playerId, score: byeValues[playerId] })),
       ...(phase === 'final' ? { freePlayOut: freeOut } : {}),
+      // Playing a withdrawn finalist's seat, unranked in the final.
+      ...(substitutes.length ? { substitutes: substitutes.map((p) => p.id) } : {}),
     };
     t.rounds.push(round);
     if (t.status === 'setup') t.status = 'running';
@@ -594,6 +657,7 @@ class TournamentStore {
       phase,
       tables: round.tables.filter((tb) => !tb.freePlay).length,
       freePlayTables: round.tables.filter((tb) => tb.freePlay).length,
+      substitutes: substitutes.map((p) => p.id),
       byes: plan.byes,
       seed: actualSeed,
       method: chosen,
@@ -654,6 +718,11 @@ class TournamentStore {
       })),
       freePlayOut: (round.freePlayOut || []).map((id) => ({
         playerId: id, name: (names.get(id) || {}).name || '?',
+      })),
+      substitutes: (round.substitutes || []).map((id) => ({
+        playerId: id,
+        name: (names.get(id) || {}).name || '?',
+        sitIn: (names.get(id) || {}).role === 'sit_in',
       })),
       tablesTotal: scored.length,
       tablesReported: scored.filter((x) => ['entered', 'verified'].includes(x.status)).length,

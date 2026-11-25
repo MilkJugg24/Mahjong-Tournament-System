@@ -244,6 +244,9 @@ const TOPICS = [
         and what they start with: nothing, their full qualifying score, or half of it.</p>
       <p>Only players still in the event go through. A withdrawn player keeps their
         qualifying place but is passed over, and the next player takes their seat.</p>
+      <p>If a finalist withdraws once the finals have started, the next final still
+        draws: a sit-in takes their seat, or else the best-placed player who missed
+        the cut, playing unranked.</p>
       <p>If two players are level across the cut line, the app <b>stops and asks you</b>
         rather than picking one. Breaking that tie is a tournament decision, and the
         rules put it in your hands.</p>

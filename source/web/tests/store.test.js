@@ -820,6 +820,77 @@ test('free play can be switched off', () => {
   assert.ok(!final.tables.some((t) => t.freePlay));
 });
 
+/* A cut field whose first final has been played and closed. */
+function afterFirstFinal(n, opts) {
+  const store = cutField(n, opts);
+  const first = store.generateRound({ phase: 'final' });
+  playRound(store, first.id);
+  store.closeRound(first.id);
+  return store;
+}
+const finalSeats = (round) => round.tables.filter((t) => !t.freePlay)
+  .flatMap((t) => t.seats.map((s) => s.playerId));
+
+test('a finalist withdrawing after a final does not stop the next one being drawn', () => {
+  // Three finalists for a table of four, and the cut cannot be undone once a
+  // final is seated: the event used to have no way forward.
+  const store = afterFirstFinal(12);
+  const [gone] = store.doc.config.cut.qualified;
+  store.updatePlayer(gone, { status: 'withdrawn' });
+  const second = store.generateRound({ phase: 'final' });
+  assert.equal(finalSeats(second).length, 4);
+  assert.ok(!finalSeats(second).includes(gone));
+  assert.equal(second.substitutes.length, 1);
+  assert.equal(second.byes.length, 0);
+});
+
+test('the best-placed player who missed the cut stands in, unranked in the final', () => {
+  const store = afterFirstFinal(12);
+  const fifth = store.standings('qualifying')
+    .find((s) => !store.doc.config.cut.qualified.includes(s.playerId)).playerId;
+  store.updatePlayer(store.doc.config.cut.qualified[0], { status: 'withdrawn' });
+  const second = store.generateRound({ phase: 'final' });
+  assert.deepEqual(second.substitutes.map((p) => p.playerId), [fifth]);
+  assert.ok(finalSeats(second).includes(fifth));
+  assert.ok(!second.tables.filter((t) => t.freePlay)
+    .some((t) => t.seats.some((s) => s.playerId === fifth)), 'not also at free play');
+  playRound(store, second.id);
+  store.closeRound(second.id);
+  assert.ok(!store.standings('final').some((s) => s.playerId === fifth),
+    'a stand-in is not ranked in the final');
+});
+
+test('a sit-in stands in before anyone who missed the cut', () => {
+  const store = afterFirstFinal(12);
+  const sub = store.addPlayer('Sit-in Sam', { role: 'sit_in' });
+  store.updatePlayer(store.doc.config.cut.qualified[1], { status: 'withdrawn' });
+  const second = store.generateRound({ phase: 'final' });
+  assert.deepEqual(second.substitutes.map((p) => p.playerId), [sub.id]);
+  assert.equal(second.substitutes[0].sitIn, true);
+});
+
+test('with nobody left to stand in, the draw says what to do', () => {
+  const store = afterFirstFinal(4);
+  store.updatePlayer(store.doc.config.cut.qualified[0], { status: 'withdrawn' });
+  assert.throws(() => store.generateRound({ phase: 'final' }), /Add a sit-in/);
+});
+
+test('a cut that is not a multiple of four still gives byes, not stand-ins', () => {
+  const store = newStore();
+  addPlayers(store, 8);
+  const round = store.generateRound();
+  const patterns = [[45000, 32000, 25000, 18000], [40000, 31000, 26000, 23000]];
+  for (const [i, t] of store.getRound(round.id).tables.entries()) {
+    store.saveTable(round.id, t.tableNumber,
+      t.seats.map((s, k) => ({ playerId: s.playerId, rawScore: patterns[i][k] })));
+  }
+  store.closeRound(round.id);
+  store.applyCut({ size: 6, carry: 'reset', rounds: 1, freePlayForRest: false });
+  const final = store.generateRound({ phase: 'final' });
+  assert.equal(final.substitutes.length, 0);
+  assert.equal(final.byes.length, 2);
+});
+
 test('players left over from free play are listed, not given a bye', () => {
   const store = cutField(10);
   const final = store.generateRound({ phase: 'final' });

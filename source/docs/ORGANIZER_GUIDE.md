@@ -234,6 +234,13 @@ Only players still in the event go through. Anyone marked **Withdrawn** keeps
 their qualifying place but is passed over, and the next player goes through in
 their seat. The Cut & finals tab names whoever was passed over.
 
+If a finalist withdraws once the finals have started, mark them **Withdrawn**
+and draw the next final as usual. Their seat goes to a sit-in if you have one,
+otherwise to the best-placed player who missed the cut. Either way the stand-in
+plays unranked, as a sit-in would, and the withdrawn finalist keeps the finals
+results they already have. The round page names the stand-in; to put someone
+else there, use **Change seats**.
+
 The first final round seats by rank (a single table takes ranks 1–4; with more
 than one table the seeds are spread). Later final rounds are re-paired so the
 same four do not sit together every time.

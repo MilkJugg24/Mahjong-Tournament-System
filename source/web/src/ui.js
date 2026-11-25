@@ -964,7 +964,11 @@ function renderRound() {
           const m = (rnd.seating || {}).metrics || {};
           toast(`${rnd.label} seated: ${rnd.tablesTotal} tables`
             + (m.repeatPairs ? `, ${m.repeatPairs} repeat pairing(s)` : ', no repeat pairings')
-            + (rnd.byes.length ? `, ${rnd.byes.length} sitting out` : '') + '.');
+            + (rnd.byes.length ? `, ${rnd.byes.length} sitting out` : '') + '.'
+            + (rnd.substitutes && rnd.substitutes.length
+              ? ` ${rnd.substitutes.map((p) => p.name).join(', ')} stand${rnd.substitutes.length === 1 ? 's' : ''}`
+                + ' in for a withdrawn finalist.'
+              : ''), 'ok', rnd.substitutes && rnd.substitutes.length ? 9000 : 4200);
         });
         btn.disabled = false;
         btn.textContent = 'Draw the seating';
@@ -1023,6 +1027,12 @@ function renderRound() {
   </div>
 
   ${byes}
+
+  ${rnd.substitutes && rnd.substitutes.length ? `<div class="card"><h3>Standing in for a finalist</h3>
+    <p>${rnd.substitutes.map((p) => `${esc(p.name)}${p.sitIn ? ' (sit-in)' : ''}`).join(', ')}
+      ${rnd.substitutes.length === 1 ? 'takes the seat' : 'take the seats'} of a finalist who has
+      withdrawn, and ${rnd.substitutes.length === 1 ? 'plays' : 'play'} unranked in the final.
+      <span class="muted small">To put someone else there, use Change seats below.</span></p></div>` : ''}
 
   ${rnd.freePlayOut && rnd.freePlayOut.length ? `<div class="card"><h3>Not seated for free play</h3>
     <p>${rnd.freePlayOut.map((p) => esc(p.name)).join(', ')}

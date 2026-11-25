@@ -70,13 +70,52 @@ function clockNote(reading) {
   return '';
 }
 
+/**
+ * The time left as a disc that empties clockwise from twelve, as a clock hand
+ * moves: a second way to read the clock at a glance, from anywhere in a room.
+ *
+ * One circle drawn with a stroke as wide as its own diameter fills the disc;
+ * its dash is the time left, started where the elapsed time ends.
+ */
+function pieHtml(reading) {
+  const frac = reading.durationMs > 0
+    ? Math.max(0, Math.min(1, reading.remainingMs / reading.durationMs))
+    : 0;
+  const r = 7.5;
+  const c = 2 * Math.PI * r;
+  const left = (frac * c).toFixed(3);
+  const gone = ((1 - frac) * c).toFixed(3);
+  return '<svg class="pie" viewBox="0 0 32 32" aria-hidden="true">'
+    + '<circle class="disc" cx="16" cy="16" r="15"/>'
+    + `<circle class="left" cx="16" cy="16" r="${r}" stroke-width="15"`
+    + ` stroke-dasharray="${left} ${c.toFixed(3)}" stroke-dashoffset="-${gone}"`
+    + ' transform="rotate(-90 16 16)"/></svg>';
+}
+
 /** The clock's own markup: refreshed every second on its own. */
 function clockHtml(reading) {
   if (!reading) return '';
   const cls = reading.over ? 'over' : (reading.warn ? 'warn' : '');
   const note = clockNote(reading);
-  return `<div class="time ${cls}">${formatClock(reading.remainingMs)}</div>`
+  return `<div class="clockline ${cls}"><div class="time">${formatClock(reading.remainingMs)}</div>`
+    + `${pieHtml(reading)}</div>`
     + (note ? `<div class="note">${esc(note)}</div>` : '');
+}
+
+const MODES = [['seating', 'Seating'], ['standings', 'Standings'], ['clock', 'Clock only']];
+
+/**
+ * A small tab at the top centre of the display that drops down the three
+ * views, so the display can be switched from the display itself as well as
+ * from the round page. It is quiet until pointed at, so it does not distract
+ * the room. ui.js hears the choice.
+ */
+function modeMenu(mode) {
+  return '<details class="modepick"><summary aria-label="Choose what the display shows">'
+    + '&#9662;</summary><div class="menu">'
+    + MODES.map(([m, label]) => `<button type="button" data-dmode="${m}"`
+      + `${m === mode ? ' class="on" aria-current="true"' : ''}>${label}</button>`).join('')
+    + '</div></details>';
 }
 
 /**
@@ -141,7 +180,8 @@ function displayBody({
   const title = round ? round.label : 'Between rounds';
   const clock = round ? `<div id="clock" class="clock">${clockHtml(reading)}</div>` : '';
   if (mode === 'clock') {
-    return `<main class="only-clock"><h1>${esc(tournament.name)} &middot; ${esc(title)}</h1>`
+    return modeMenu(mode)
+      + `<main class="only-clock"><h1>${esc(tournament.name)} &middot; ${esc(title)}</h1>`
       + `${clock || '<p class="idle">No round is open.</p>'}</main>`;
   }
   let content;
@@ -153,7 +193,7 @@ function displayBody({
     content = round ? seatingBody(round, sitInsOut) : '<p class="idle">No round is open.</p>';
   }
   const heading = mode === 'standings' ? 'Standings' : 'Seating';
-  return `<header><div><h1>${esc(tournament.name)}</h1>`
+  return modeMenu(mode) + `<header><div><h1>${esc(tournament.name)}</h1>`
     + `<h2>${esc(title)} &middot; ${heading}</h2></div>${clock}</header>`
     + `<main class="${esc(mode)}">${content}</main>`;
 }
@@ -176,10 +216,28 @@ header { display: flex; justify-content: space-between; align-items: flex-start;
 h1 { margin: 0; font-size: 1.5em; line-height: 1.15; }
 h2 { margin: .15em 0 0; font-size: 1.05em; font-weight: 500; color: var(--muted); }
 .clock { text-align: right; }
+.clockline { display: inline-flex; align-items: center; gap: .35em; }
+.clockline.warn { color: #f2c35b; }
+.clockline.over { color: #ff8a80; }
 .clock .time { font-size: 3.2em; font-weight: 800; line-height: 1; font-variant-numeric: tabular-nums; }
-.clock .time.warn { color: #f2c35b; }
-.clock .time.over { color: #ff8a80; }
 .clock .note { font-size: .8em; color: var(--muted); margin-top: .25em; }
+.pie { width: 2.5em; height: 2.5em; flex: none; }
+.pie .disc { fill: rgba(255,255,255,.07); stroke: currentColor; stroke-opacity: .45; stroke-width: 1; }
+.pie .left { fill: none; stroke: currentColor; }
+
+.modepick { position: fixed; top: 0; left: 50%; transform: translateX(-50%); z-index: 5;
+  text-align: center; font-size: .75em; }
+.modepick summary { list-style: none; cursor: pointer; color: var(--muted); opacity: .35;
+  padding: .05em 1.1em .2em; border: 1px solid var(--line); border-top: 0;
+  border-radius: 0 0 .5em .5em; background: #131c18; transition: opacity .2s; }
+.modepick summary::-webkit-details-marker { display: none; }
+.modepick:hover summary, .modepick[open] summary, .modepick summary:focus-visible { opacity: 1; }
+.modepick .menu { display: flex; flex-direction: column; gap: .2em; margin-top: .3em; padding: .35em;
+  background: #131c18; border: 1px solid var(--line); border-radius: .5em; }
+.modepick button { font: inherit; color: #f2f5f3; background: transparent; border: 0;
+  border-radius: .35em; padding: .35em 1.2em; cursor: pointer; text-align: left; white-space: nowrap; }
+.modepick button:hover { background: #1f2a25; }
+.modepick button.on { background: #1f6f43; }
 
 .tablegrid { display: grid; gap: .7em; grid-template-columns: repeat(auto-fill, minmax(10.5em, 1fr)); }
 .tbl { border: 1px solid var(--line); border-radius: .4em; padding: .45em .6em .35em; background: #131c18; }
@@ -212,7 +270,9 @@ h2 { margin: .15em 0 0; font-size: 1.05em; font-weight: 500; color: var(--muted)
 .only-clock { height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; }
 .only-clock h1 { font-size: 2.4vw; color: var(--muted); font-weight: 500; }
 .only-clock .clock { text-align: center; }
-.only-clock .clock .time { font-size: 26vw; }
+.only-clock .clock .time { font-size: 24vw; }
+.only-clock .clockline { gap: 3vw; }
+.only-clock .pie { width: 17vw; height: 17vw; }
 .only-clock .clock .note { font-size: 2.6vw; }
 .idle { font-size: 1.2em; color: var(--muted); }
 `;
@@ -264,7 +324,8 @@ function fitToScreen(win, { min = 11 } = {}) {
 }
 
 const API = {
-  CALLS, clockReading, formatClock, clockNote, clockHtml, displayBody, displayShell, fitToScreen,
+  CALLS, MODES, clockReading, formatClock, clockNote, clockHtml, pieHtml, displayBody,
+  displayShell, fitToScreen,
 };
 
 if (typeof module !== 'undefined' && module.exports) module.exports = API;

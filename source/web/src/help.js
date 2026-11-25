@@ -43,12 +43,11 @@ const FIELD_HELP = {
     + 'finishes and no new one starts. The ARA calls the time left at 30, 45, 60 and 75 '
     + 'minutes. Pause and Resume lose nothing, and closing the round stops it.',
 
-  'room-display': 'Opens in a new tab for a projector or a big screen: drag the tab '
-    + 'there, or out into a window of its own, and make it full screen. It shows the '
-    + 'round clock with either the seating, table by table with subs in their own '
-    + 'colour, the standings, or the clock alone. The text sizes itself to fill the '
-    + 'screen, and the display keeps itself up to date as you work here, so leave this '
-    + 'tab open.',
+  'room-display': 'Opens in a new tab: drag it to the projector or out into its own '
+    + 'window, and make it full screen. It shows the clock with the seating (table by '
+    + 'table, subs in their own colour), the standings, or the clock alone. Switch here '
+    + 'or with the ▾ at the top of the display. The text fills the screen and keeps up '
+    + 'with your changes, so leave this tab open.',
 
   'sign-in': 'Tick people off as they arrive: the Here box, or type part of a name '
     + 'and press Enter when only one matches. When everyone who is coming is here, '

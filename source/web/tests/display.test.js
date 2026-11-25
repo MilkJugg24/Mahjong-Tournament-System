@@ -48,7 +48,53 @@ test('the last fifteen minutes warn, and time up says what happens', () => {
   assert.match(clockNote(up), /no new hands/);
 });
 
+/* The pie's filled arc and where it starts, as fractions of the whole circle. */
+function pie(reading) {
+  const { pieHtml } = require('../src/display.js');
+  const svg = pieHtml(reading);
+  const [, left, whole] = svg.match(/stroke-dasharray="([\d.]+) ([\d.]+)"/);
+  const [, gone] = svg.match(/stroke-dashoffset="-([\d.]+)"/);
+  return { left: Number(left) / Number(whole), gone: Number(gone) / Number(whole) };
+}
+
+test('the pie starts full', () => {
+  const p = pie(clockReading(null, T0, { defaultMinutes: 90 }));
+  assert.equal(p.left, 1);
+  assert.equal(p.gone, 0);
+});
+
+test('the pie empties clockwise from twelve as time goes', () => {
+  // Half gone: the filled half starts at six o'clock and runs round to twelve.
+  const p = pie(clockReading(running(), T0 + 45 * MIN));
+  assert.ok(Math.abs(p.left - 0.5) < 1e-3, `left ${p.left}`);
+  assert.ok(Math.abs(p.gone - 0.5) < 1e-3, `gone ${p.gone}`);
+});
+
+test('the pie is empty when time is up, and never runs backwards', () => {
+  const p = pie(clockReading(running(), T0 + 120 * MIN));
+  assert.equal(p.left, 0);
+  assert.equal(p.gone, 1);
+});
+
+test('the pie sits beside the countdown, in the clock\'s colour', () => {
+  const { clockHtml } = require('../src/display.js');
+  const html = clockHtml(clockReading(running(), T0 + 80 * MIN));
+  assert.match(html, /<div class="clockline warn"><div class="time">10:00<\/div><svg class="pie"/);
+});
+
 /* ----------------------------------------------------------- the display */
+
+test('every view has the menu at the top, with its own view marked', () => {
+  const { MODES } = require('../src/display.js');
+  const { store, round } = seatedStore();
+  for (const [mode] of MODES) {
+    const html = displayBody({ tournament: store.doc, round, mode });
+    assert.match(html, /^<details class="modepick">/, `${mode}: no menu`);
+    for (const [m] of MODES) assert.match(html, new RegExp(`data-dmode="${m}"`));
+    assert.match(html, new RegExp(`data-dmode="${mode}" class="on"`), `${mode} not marked`);
+    assert.equal((html.match(/class="on"/g) || []).length, 1);
+  }
+});
 
 function seatedStore() {
   const store = new TournamentStore();

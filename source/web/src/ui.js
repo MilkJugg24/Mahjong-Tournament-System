@@ -1293,6 +1293,26 @@ function openDisplay() {
   // The text is sized to the screen, so it is sized again when the screen changes:
   // dragged to the projector, made full screen.
   win.addEventListener('resize', () => fitToScreen(win));
+  // The ▾ menu at the top of the display switches what it shows, the same
+  // setting as the round page's buttons. One listener on the document, since
+  // the body is redrawn on every change. A click elsewhere closes the menu.
+  win.document.addEventListener('click', (e) => {
+    const pick = e.target.closest && e.target.closest('[data-dmode]');
+    if (pick) {
+      display.mode = pick.dataset.dmode;
+      refreshDisplay();
+      if (state.view === 'round') render();
+      return;
+    }
+    if (!(e.target.closest && e.target.closest('.modepick'))) {
+      const open = win.document.querySelector('.modepick[open]');
+      if (open) open.open = false;
+    }
+  });
+  win.document.addEventListener('keydown', (e) => {
+    const open = win.document.querySelector('.modepick[open]');
+    if (e.key === 'Escape' && open) open.open = false;
+  });
   display.win = win;
   refreshDisplay();
 }

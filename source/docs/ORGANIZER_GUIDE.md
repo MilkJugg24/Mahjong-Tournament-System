@@ -173,9 +173,12 @@ screen. It shows the clock with one of:
 - **Standings** — the event's standings, with a line at the cut;
 - **Clock only** — the clock, as large as it will go.
 
-Choose which from the round page. The text sizes itself to fill the screen:
-large for a small event, smaller for a big one, and never needing a scroll.
-The display keeps itself up to date as you work, so leave the main tab open.
+Choose which from the round page, or from the display itself: the faint ▾ at
+the top centre drops down the same three. Beside the countdown, a disc empties
+clockwise from twelve as the time runs out, for anyone too far away to read the
+numbers. The text sizes itself to fill the screen: large for a small event,
+smaller for a big one, and never needing a scroll. The display keeps itself up
+to date as you work, so leave the main tab open.
 
 ### 4. Play and report
 

@@ -12,7 +12,7 @@ const assert = require('node:assert/strict');
 
 const {
   LIMITS, COLOUR, COLOUR_TEST, parseWebhook, pairingsMessage, standingsMessage,
-  DiscordPoster,
+  DiscordPoster, postIdFor, withPostId,
 } = require('../src/discord.js');
 
 const GOOD = 'https://discord.com/api/webhooks/123456789012345678/abcDEF-123_token';
@@ -109,6 +109,38 @@ test('a field never exceeds what Discord accepts', () => {
   }
 });
 
+test('a seat shows its wind and name, as the app does, without the club', () => {
+  const value = pairingsMessage(tournament, round(1)).embeds[0].fields[0].value;
+  assert.equal(value.split('\n')[0], '`E` Player 01');
+  assert.doesNotMatch(value, /Club A/);
+});
+
+test('a sub is tagged, and the tag explained', () => {
+  const r = round(2);
+  r.tables[1].seats[2].sitIn = true;
+  const embed = pairingsMessage(tournament, r).embeds[0];
+  assert.match(embed.fields[1].value, /`W` Player 07 `sub`/);
+  assert.equal((JSON.stringify(embed.fields).match(/`sub`/g) || []).length, 1);
+  assert.match(embed.description, /`sub` plays the seat, but is not ranked/);
+});
+
+test('a stand-in for a withdrawn finalist is tagged too', () => {
+  const r = round(1);
+  r.substitutes = [{ playerId: 3, name: 'Player 03' }];
+  assert.match(pairingsMessage(tournament, r).embeds[0].fields[0].value, /Player 03 `sub`/);
+});
+
+test('subs with no seat are listed, as on the room display', () => {
+  const embed = pairingsMessage(tournament, round(1), { sitInsOut: [{ name: 'Sue' }] }).embeds[0];
+  const subs = embed.fields.find((f) => f.name === 'Subs not playing');
+  assert.ok(subs);
+  assert.equal(subs.value, 'Sue');
+});
+
+test('without subs there is no key to explain them', () => {
+  assert.equal(pairingsMessage(tournament, round(2)).embeds[0].description, undefined);
+});
+
 test('tables that do not fit are counted, not silently dropped', () => {
   const embed = pairingsMessage(tournament, round(30)).embeds[0];
   const more = embed.fields.find((f) => /more tables/i.test(f.name));
@@ -142,12 +174,42 @@ test('a big field is trimmed to fit and says how many are missing', () => {
   assert.match(embed.description, /\d+ more not shown/);
 });
 
-test('a tie needing a coin toss is marked and explained', () => {
+test('a tie needing a coin toss is marked and explained, as the app marks it', () => {
   const rows = standings(4);
   rows[1].needsCoinToss = true;
   const embed = standingsMessage(tournament, rows).embeds[0];
-  assert.match(embed.description, /=/);
-  assert.match(embed.footer.text, /tie to settle/);
+  assert.match(embed.description, /^ +2\* +Player 02/m);
+  assert.match(embed.footer.text, /\* still level after every tiebreaker: settle by coin toss/);
+});
+
+test('scores are signed, as the app shows them', () => {
+  const rows = [
+    { rank: 1, name: 'Player 01', tournamentScore: '49.1', needsCoinToss: false },
+    { rank: 2, name: 'Player 02', tournamentScore: '0.0', needsCoinToss: false },
+    { rank: 3, name: 'Player 03', tournamentScore: '-9.8', needsCoinToss: false },
+  ];
+  const text = standingsMessage(tournament, rows).embeds[0].description;
+  assert.match(text, /Player 01 +\+49\.1/);
+  assert.match(text, /Player 02 +0\.0/);
+  assert.match(text, /Player 03 +-9\.8/);
+});
+
+test('the cut is a labelled line, not bare dashes', () => {
+  const rows = standings(6).map((r, i) => ({ ...r, stage: i < 4 ? 'final' : 'qualifying' }));
+  const text = standingsMessage(tournament, rows).embeds[0].description;
+  const lines = text.split('\n');
+  const cut = lines.findIndex((l) => /did not make the cut/.test(l));
+  assert.ok(cut > 0, 'no cut line');
+  assert.match(lines[cut - 1], /Player 04/);
+  assert.match(lines[cut + 1], /Player 05/);
+});
+
+test('posts carry a timestamp Discord shows in each reader\'s own time', () => {
+  for (const embed of [pairingsMessage(tournament, round(1)).embeds[0],
+    standingsMessage(tournament, standings(2)).embeds[0]]) {
+    assert.ok(!Number.isNaN(Date.parse(embed.timestamp)), 'no timestamp');
+    assert.doesNotMatch(embed.footer.text, /UTC/);
+  }
 });
 
 test('the scope is named, so finals are not mistaken for overall', () => {
@@ -190,7 +252,7 @@ test('test standings are marked too, without losing a row', () => {
   const embed = standingsMessage(demoTournament, rows).embeds[0];
   assert.equal(embed.color, COLOUR_TEST);
   assert.match(embed.footer.text, /test tournament/i);
-  assert.match(embed.footer.text, /2 player\(s\)/);
+  assert.match(embed.footer.text, /2 players/);
   assert.match(embed.description, /Player 01/);
   assert.match(embed.description, /Player 02/);
 });
@@ -203,8 +265,40 @@ test('an empty standings table says so rather than posting an empty block', () =
 test('MCR precision is honoured, so table points are not shown as 4.0', () => {
   const rows = [{ playerId: 1, rank: 1, name: 'Player 01', tournamentScore: '4', needsCoinToss: false }];
   const embed = standingsMessage(tournament, rows, { precision: 0 }).embeds[0];
-  assert.match(embed.description, /\s4\b/);
+  assert.match(embed.description, /\+4\b/);
   assert.ok(!/4\.0/.test(embed.description), embed.description);
+});
+
+/* ------------------------------------------------- which message to edit */
+
+test('each event keeps its own posts', () => {
+  // The bug: the ids lived with the webhook alone, so a new event edited the
+  // last event's messages -- often far up the channel, out of sight -- instead
+  // of posting its own.
+  let cfg = { url: GOOD };
+  cfg = withPostId(cfg, 'tutorial', 'pairings', '111');
+  cfg = withPostId(cfg, 'tutorial', 'standings', '222');
+  assert.equal(postIdFor(cfg, 'tutorial', 'pairings'), '111');
+  assert.equal(postIdFor(cfg, 'big-event', 'pairings'), null, 'a new event posts afresh');
+  cfg = withPostId(cfg, 'big-event', 'pairings', '333');
+  assert.equal(postIdFor(cfg, 'big-event', 'pairings'), '333');
+  assert.equal(postIdFor(cfg, 'tutorial', 'pairings'), '111', 'the old event keeps its own');
+});
+
+test('recording one post keeps the other', () => {
+  // Saving the second post from a stale copy used to lose the first one's id.
+  let cfg = withPostId({ url: GOOD }, 'ev', 'pairings', '111');
+  cfg = withPostId(cfg, 'ev', 'standings', '222');
+  assert.equal(postIdFor(cfg, 'ev', 'pairings'), '111');
+  assert.equal(postIdFor(cfg, 'ev', 'standings'), '222');
+  assert.equal(cfg.url, GOOD);
+});
+
+test('the old shared ids are dropped once posts are kept per event', () => {
+  const cfg = withPostId({ url: GOOD, pairingsMessageId: '9', demo_standingsMessageId: '8' },
+    'ev', 'pairings', '111');
+  assert.equal(cfg.pairingsMessageId, undefined);
+  assert.equal(cfg.demo_standingsMessageId, undefined);
 });
 
 /* ------------------------------------------------------------ the wire */

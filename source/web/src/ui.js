@@ -25,7 +25,7 @@ const {
 /* The room display window, if open, and what it is showing. */
 const display = { win: null, mode: 'seating' };
 const {
-  DiscordPoster, pairingsMessage, standingsMessage, parseWebhook,
+  DiscordPoster, pairingsMessage, standingsMessage, parseWebhook, postIdFor, withPostId,
 } = window.RT.discord;
 const { testRoster, isSubName, fillOpenRound } = window.RT.testdata;
 const { FIELD_HELP, TOPICS } = window.RT.help;
@@ -1297,6 +1297,13 @@ function openDisplay() {
   refreshDisplay();
 }
 
+/** Sit-ins playing no seat in `round`: free to sub, listed for the room. */
+function idleSitIns(round) {
+  const present = new Set(round.tables.flatMap((tb) => tb.seats.map((s) => s.playerId))
+    .concat(round.byes.map((b) => b.playerId)));
+  return state.store.playingPlayers().filter((p) => p.role === 'sit_in' && !present.has(p.id));
+}
+
 /** Redraw the room display from the current state. Cheap enough for every change. */
 function refreshDisplay() {
   if (!display.win) return;
@@ -1309,14 +1316,7 @@ function refreshDisplay() {
   if (!t || !body) return;
   const open = state.store.openRound();
   const round = open ? state.store.getRound(open.id) : null;
-  // Sit-ins with no seat this round, listed under the tables as free to sub.
-  const present = new Set(round
-    ? round.tables.flatMap((tb) => tb.seats.map((s) => s.playerId))
-      .concat(round.byes.map((b) => b.playerId))
-    : []);
-  const sitInsOut = round
-    ? state.store.playingPlayers().filter((p) => p.role === 'sit_in' && !present.has(p.id))
-    : [];
+  const sitInsOut = round ? idleSitIns(round) : [];
   body.innerHTML = displayBody({
     tournament: t,
     round,
@@ -2752,7 +2752,7 @@ async function postToDiscord(which, { quiet = false } = {}) {
         const open = state.store.openRound();
         const round = open ? state.store.getRound(open.id) : null;
         if (!round) continue;
-        payload = pairingsMessage(t, round);
+        payload = pairingsMessage(t, round, { sitInsOut: idleSitIns(round) });
       } else {
         // Always the event's own order. It used to post whichever view was
         // last clicked on the Standings tab, so glancing at Qualifying after
@@ -2763,16 +2763,26 @@ async function postToDiscord(which, { quiet = false } = {}) {
           precision: state.store.rules.scorePrecision,
         });
       }
-      // Test posts keep their own message ids. The ids live with the webhook,
-      // not with the tournament, so without this a rehearsal would edit over
-      // the live pairings post of a real event running on the same machine.
-      const key = isTestEvent() ? `demo_${job}MessageId` : `${job}MessageId`;
-      const id = await poster.send(payload, cfg[key] || null);
-      if (id && id !== cfg[key]) await saveDiscordConfig({ ...cfg, [key]: id });
+      // This event's own message, so a new event posts its own rather than
+      // editing the last one's.
+      const existing = postIdFor(discordState.config, t.id, job);
+      const id = await poster.send(payload, existing);
+      // Saved from the settings as they are now, not the copy taken before the
+      // first post: saving from that copy lost the first post's id, and the
+      // next update started a new message instead of editing it.
+      if (id && id !== existing) {
+        await saveDiscordConfig(withPostId(discordState.config, t.id, job, id));
+      }
       discordState.last = `${job} posted ${when(new Date().toISOString().replace(/\.\d+Z$/, 'Z'))}`;
+      discordState.failing = '';
     } catch (err) {
       discordState.last = `could not post ${job}: ${err.message}`;
-      if (!quiet) toast(err.message, 'error', 9000);
+      // An automatic post failing used to show only on the Backups tab. Say it
+      // once wherever the organiser is, then not again until it changes.
+      if (!quiet || discordState.failing !== err.message) {
+        toast(`Discord: ${err.message}`, 'error', 9000);
+      }
+      discordState.failing = err.message;
     }
   }
   if (state.view === 'backups') render();

@@ -308,6 +308,12 @@ or seats change, the Overall standings as tables are entered and rounds close. E
 update edits the existing post rather than adding a new message. **Post now**
 sends both straight away.
 
+Each event has its own two posts. The first time an event posts, its messages
+appear at the bottom of the channel, and from then on it edits those and only
+those, so a new event never overwrites the last one's. The posts read like the
+app: tables by seat wind, subs tagged `sub`, signed scores, and a line at the
+cut. If a post fails, a message says so on whatever tab you are on.
+
 Worth knowing:
 
 - **Players' names leave the computer** when you post. That is the point, but

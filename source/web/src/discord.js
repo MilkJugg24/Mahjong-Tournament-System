@@ -71,26 +71,46 @@ function fit(text, limit) {
   return s.length <= limit ? s : `${s.slice(0, limit - 1)}…`;
 }
 
-const stamp = () => new Date().toISOString().replace('T', ' ').replace(/\..*/, ' UTC');
+/* Discord shows an embed's timestamp in each reader's own time zone, which a
+ * line of UTC text in the footer never did. */
+const now = () => new Date().toISOString();
+
+/* Scores as the app shows them: signed, at the event's precision. */
+const signed = (value, precision) => {
+  const n = Number(value);
+  const s = n.toFixed(precision);
+  return n > 0 ? `+${s}` : s;
+};
+
+const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
 /**
- * The seating of one round.
+ * The seating of one round, laid out as the app and the room display lay it
+ * out: a block per table, its players by seat wind.
  *
- * One field per table, which caps a message at 25 tables (100 seats). Beyond
- * that the rest is named rather than silently dropped.
+ * A sub -- a sit-in, or a stand-in for a withdrawn finalist -- is tagged, so a
+ * table can see one of its four plays unranked. Underneath: who is sitting
+ * out, and which subs are free. One field per table caps a message at 25
+ * tables (100 seats); beyond that the rest is named, not silently dropped.
  */
-function pairingsMessage(tournament, round, { note = '' } = {}) {
+function pairingsMessage(tournament, round, { note = '', sitInsOut = [] } = {}) {
   const tables = round.tables || [];
-  const shown = tables.slice(0, LIMITS.fields - 1);
+  const shown = tables.slice(0, LIMITS.fields - 3);
   const dropped = tables.length - shown.length;
+  const standIns = new Set((round.substitutes || []).map((p) => p.playerId));
+  let anySub = false;
 
   const fields = shown.map((t) => ({
     name: fit(`Table ${t.tableNumber}${t.freePlay ? ' · free play' : ''}`
       + `${t.lobby ? ` · ${t.lobby}` : ''}`, LIMITS.fieldName),
     value: fit(
-      t.seats
+      [...t.seats].sort((a, b) => a.seatIndex - b.seatIndex)
         .filter((s) => s.playerId !== null && s.playerId !== undefined)
-        .map((s) => `\`${s.seatWind}\` ${s.name}${s.club ? ` *(${s.club})*` : ''}`)
+        .map((s) => {
+          const sub = Boolean(s.sitIn) || standIns.has(s.playerId);
+          anySub = anySub || sub;
+          return `\`${s.seatWind}\` ${s.name}${sub ? ' `sub`' : ''}`;
+        })
         .join('\n') || '*empty*',
       LIMITS.fieldValue),
     inline: true,
@@ -103,6 +123,13 @@ function pairingsMessage(tournament, round, { note = '' } = {}) {
       inline: false,
     });
   }
+  if (sitInsOut.length) {
+    fields.push({
+      name: 'Subs not playing',
+      value: fit(sitInsOut.map((p) => p.name || p).join(', '), LIMITS.fieldValue),
+      inline: false,
+    });
+  }
   if (dropped > 0) {
     fields.push({
       name: 'More tables',
@@ -111,20 +138,25 @@ function pairingsMessage(tournament, round, { note = '' } = {}) {
     });
   }
 
+  const lines = [];
+  if (note) lines.push(note);
+  if (anySub) lines.push('`sub` plays the seat, but is not ranked');
   return {
     embeds: [{
-      title: fit(`${tournament.name} — ${round.label || `Round ${round.number}`}`,
+      title: fit(`${tournament.name} · ${round.label || `Round ${round.number}`}`,
         LIMITS.embedTitle),
-      description: note ? fit(note, LIMITS.embedDescription) : undefined,
+      description: lines.length ? fit(lines.join('\n'), LIMITS.embedDescription) : undefined,
       color: colourFor(tournament),
       fields,
-      footer: { text: footerFor(tournament, `Seating · updated ${stamp()}`) },
+      footer: { text: footerFor(tournament, 'Seating') },
+      timestamp: now(),
     }],
   };
 }
 
 /**
- * The standings.
+ * The standings, as the app shows them: signed scores, a * on a tie the
+ * tiebreakers could not settle, and a labelled line at the cut.
  *
  * One code block, so the columns line up in Discord's proportional font.
  * Long fields get trimmed to the number that fits rather than overflowing.
@@ -134,10 +166,9 @@ function standingsMessage(tournament, rows, { scope = 'overall', precision = 1 }
   const width = Math.min(24, Math.max(8, ...rows.map((r) => String(r.name).length)));
 
   const line = (r) => {
+    const rank = `${r.rank}${r.needsCoinToss ? '*' : ''}`.padStart(4);
     const name = fit(r.name, width).padEnd(width);
-    const score = Number(r.tournamentScore).toFixed(precision).padStart(8);
-    const flag = r.needsCoinToss ? ' =' : '';
-    return `${String(r.rank).padStart(3)}  ${name}  ${score}${flag}`;
+    return `${rank}  ${name}  ${signed(r.tournamentScore, precision).padStart(8)}`;
   };
 
   // Build up to the character ceiling rather than guessing a row count.
@@ -148,7 +179,7 @@ function standingsMessage(tournament, rows, { scope = 'overall', precision = 1 }
   for (const [i, r] of rows.entries()) {
     // After a cut the overall list is finalists, then everyone else.
     const cutLine = r.stage === 'qualifying' && i > 0 && rows[i - 1].stage === 'final'
-      ? `${' '.repeat(5)}${'-'.repeat(width + 10)}\n` : '';
+      ? `${' '.repeat(6)}- did not make the cut -\n` : '';
     const next = cutLine + line(r);
     if (used + next.length + 1 > LIMITS.embedDescription - 120) break;
     out.push(next);
@@ -162,17 +193,47 @@ function standingsMessage(tournament, rows, { scope = 'overall', precision = 1 }
 
   return {
     embeds: [{
-      title: fit(`${tournament.name} — ${label} standings`, LIMITS.embedTitle),
+      title: fit(`${tournament.name} · ${label} standings`, LIMITS.embedTitle),
       description: fit(
         body + (dropped > 0 ? `\n${dropped} more not shown.` : ''),
         LIMITS.embedDescription),
       color: colourFor(tournament),
       footer: {
-        text: footerFor(tournament, `${rows.length} player(s)${rows.some((r) => r.needsCoinToss)
-          ? ' · = marks a tie to settle' : ''} · updated ${stamp()}`),
+        text: footerFor(tournament, plural(rows.length, 'player')
+          + (rows.some((r) => r.needsCoinToss)
+            ? ' · * still level after every tiebreaker: settle by coin toss' : '')),
       },
+      timestamp: now(),
     }],
   };
+}
+
+/* ------------------------------------------------------- which message
+ *
+ * Each event keeps its own pairings post and standings post. The ids used
+ * to live with the webhook alone, one pair for every real event and one for
+ * every test, so a new event edited the last one's messages -- wherever they
+ * sat in the channel, often out of sight above -- instead of posting its own.
+ * They are still kept with the webhook, in browser settings, for the reason
+ * DiscordPoster gives. */
+
+const LEGACY_KEYS = ['pairingsMessageId', 'standingsMessageId',
+  'demo_pairingsMessageId', 'demo_standingsMessageId'];
+
+/** The message this event's `job` post edits, or null to post a new one. */
+function postIdFor(config, eventId, job) {
+  const posts = (config && config.posts) || {};
+  return (posts[eventId] && posts[eventId][job]) || null;
+}
+
+/** The settings with this event's `job` post recorded as message `id`. */
+function withPostId(config, eventId, job, id) {
+  const next = { ...(config || {}) };
+  for (const key of LEGACY_KEYS) delete next[key];
+  const posts = { ...(next.posts || {}) };
+  posts[eventId] = { ...(posts[eventId] || {}), [job]: id };
+  next.posts = posts;
+  return next;
 }
 
 /* ------------------------------------------------------------- the wire */
@@ -238,7 +299,7 @@ class DiscordPoster {
 
 const API = {
   LIMITS, COLOUR, COLOUR_TEST, parseWebhook, pairingsMessage, standingsMessage,
-  DiscordPoster, fit,
+  DiscordPoster, fit, postIdFor, withPostId,
 };
 
 if (typeof module !== 'undefined' && module.exports) module.exports = API;
